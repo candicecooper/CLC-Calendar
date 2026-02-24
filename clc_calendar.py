@@ -4,21 +4,15 @@ from datetime import date, datetime, timedelta
 import calendar
 
 # ─── PAGE CONFIG ────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="CLC Calendar",
-    page_icon="📅",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="CLC Calendar", page_icon="📅", layout="wide", initial_sidebar_state="collapsed")
 
 # ─── SUPABASE ───────────────────────────────────────────────────────────────────
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-
 supabase = init_supabase()
 
-# ─── EVENT TYPE CONFIG ───────────────────────────────────────────────────────────
+# ─── EVENT TYPES ────────────────────────────────────────────────────────────────
 EVENT_TYPES = {
     "Staff Meeting":         {"color": "#1a2e4a", "bg": "#e8edf3", "emoji": "👥"},
     "PAC Meeting":           {"color": "#6d28d9", "bg": "#ede9fe", "emoji": "🏛️"},
@@ -34,79 +28,79 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.main { background: #f8f6f0; }
-.block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1200px; }
-
+.main { background: #f0f2f6; }
+.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1300px; }
 .cal-header {
     background: linear-gradient(135deg, #1a2e4a 0%, #2d4a6e 60%, #3a5f8a 100%);
-    color: white; padding: 1.75rem 2.5rem; border-radius: 12px;
+    color: white; padding: 1.25rem 2rem; border-radius: 12px;
     margin-bottom: 1rem; display: flex; align-items: center;
     gap: 1.5rem; box-shadow: 0 4px 20px rgba(26,46,74,0.25);
 }
-.cal-header h1 { margin: 0; font-size: 1.8rem; font-weight: 700; }
-.cal-header p { margin: 0.25rem 0 0; opacity: 0.8; font-size: 0.95rem; }
-
-/* Month grid */
-.month-grid { width: 100%; border-collapse: collapse; }
-.month-grid th {
-    background: #1a2e4a; color: white; padding: 0.6rem;
-    text-align: center; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.5px;
-}
-.month-grid td {
-    border: 1px solid #e8e4d9; vertical-align: top;
-    padding: 0.4rem; min-height: 90px; background: white; width: 14.28%;
-}
-.month-grid td.today { background: #fffbeb; border: 2px solid #d4af37; }
-.month-grid td.other-month { background: #f8f6f0; }
-.day-num { font-size: 0.8rem; font-weight: 600; color: #1a2e4a; margin-bottom: 0.2rem; }
-.day-num.today-num { background: #1a2e4a; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
-.cal-event {
-    font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px;
-    margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis; display: block;
-}
-
-/* Week view */
-.week-col { background: white; border-radius: 8px; padding: 0.75rem; min-height: 180px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
-.week-day-header { font-weight: 700; font-size: 0.82rem; color: #1a2e4a; border-bottom: 2px solid #e8e4d9; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
-.week-day-header.today-header { color: #d4af37; }
-
-/* Event cards */
-.event-card {
-    border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.6rem;
-    border-left: 4px solid; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-}
-.event-card h4 { margin: 0 0 0.2rem; font-size: 0.92rem; }
-.event-card .meta { font-size: 0.78rem; color: #666; }
-
-.info-box {
-    background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
-    padding: 0.75rem 1rem; font-size: 0.88rem; color: #1e40af; margin-bottom: 1rem;
-}
-.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
-
-hr { border: none; border-top: 1px solid #e8e4d9; margin: 1rem 0; }
-.stButton>button { border-radius: 8px; font-weight: 500; }
+.cal-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.cal-header p  { margin: 0.2rem 0 0; opacity: 0.75; font-size: 0.88rem; }
+.month-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.month-grid th { background: #1a2e4a; color: white; padding: 0.5rem; text-align: center; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; }
+.month-grid td { border: 1px solid #dde; vertical-align: top; padding: 0.35rem; background: white; width: 14.28%; min-height: 80px; }
+.month-grid td.today-cell   { background: #fffbeb; border: 2px solid #d4af37; }
+.month-grid td.selected-cell { background: #dbeafe !important; border: 2px solid #1a2e4a !important; }
+.month-grid td.other-month  { background: #f8f8fb; }
+.day-num { font-size: 0.78rem; font-weight: 600; color: #1a2e4a; margin-bottom: 0.15rem; }
+.today-badge { background: #1a2e4a; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; }
+.cal-chip { font-size: 0.66rem; padding: 0.1rem 0.35rem; border-radius: 3px; margin-bottom: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.week-col { background: white; border-radius: 10px; padding: 0.6rem 0.5rem; min-height: 180px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-top: 3px solid #e0e0e0; }
+.week-day-label { font-size: 0.72rem; color: #888; text-transform: uppercase; font-weight: 600; }
+.week-day-num   { font-size: 1.2rem; font-weight: 700; color: #1a2e4a; line-height: 1.2; }
+.today-strip { background: linear-gradient(90deg,#fffbeb,#fef9e7); border: 1px solid #d4af37; border-radius: 10px; padding: 0.65rem 1.2rem; margin-bottom: 0.75rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+.ts-date { font-weight: 700; font-size: 0.95rem; color: #92400e; }
+.ev-card { border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; border-left: 4px solid; font-size: 0.85rem; }
+.ev-card h4 { margin: 0 0 0.15rem; font-size: 0.88rem; }
+.ev-card .meta { font-size: 0.74rem; color: #666; }
+.info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.84rem; color: #1e40af; margin-bottom: 0.75rem; }
+hr { border: none; border-top: 1px solid #eaecf0; margin: 0.75rem 0; }
+.stButton>button { border-radius: 7px; font-weight: 500; }
 </style>
 """, unsafe_allow_html=True)
+
+# ─── SESSION STATE ───────────────────────────────────────────────────────────────
+today = date.today()
+for k, v in [("cal_year", today.year), ("cal_month", today.month),
+              ("cal_week_start", today - timedelta(days=today.weekday())),
+              ("selected_date", today), ("is_admin", False), ("edit_event_id", None)]:
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ─── DB HELPERS ─────────────────────────────────────────────────────────────────
 def db_events(start_date=None, end_date=None):
     q = supabase.table("clc_events").select("*").order("event_date").order("start_time")
-    if start_date:
-        q = q.gte("event_date", str(start_date))
-    if end_date:
-        q = q.lte("event_date", str(end_date))
+    if start_date: q = q.gte("event_date", str(start_date))
+    if end_date:   q = q.lte("event_date", str(end_date))
     return q.execute().data
 
-def db_pac_meetings():
-    try:
-        return supabase.table("pac_meetings").select("*").order("meeting_date").execute().data
-    except:
-        return []
+def db_pac():
+    try: return supabase.table("pac_meetings").select("*").order("meeting_date").execute().data
+    except: return []
+
+def pac_events(pac_list, d_from=None, d_to=None):
+    out = []
+    for p in pac_list:
+        if not p.get("meeting_date"): continue
+        d = str(p["meeting_date"])[:10]
+        if d_from and d < str(d_from): continue
+        if d_to   and d > str(d_to):   continue
+        out.append({"title": f"{p.get('meeting_type','Ordinary')} PAC Meeting",
+                    "event_type": "PAC Meeting", "event_date": p["meeting_date"],
+                    "start_time": p.get("start_time"), "location": p.get("location",""),
+                    "added_by": "PAC System", "notes": f"Chair: {p.get('chair','—')}",
+                    "id": f"pac_{p['id']}"})
+    return out
+
+def ev_index(events):
+    idx = {}
+    for ev in events:
+        idx.setdefault(str(ev.get("event_date",""))[:10], []).append(ev)
+    return idx
 
 def fmt_date(d):
-    if not d: return "—"
     try: return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%-d %B %Y")
     except: return str(d)[:10]
 
@@ -115,369 +109,338 @@ def fmt_time(t):
     try: return datetime.strptime(str(t)[:5], "%H:%M").strftime("%-I:%M %p")
     except: return str(t)[:5]
 
-# ─── ADMIN CHECK ────────────────────────────────────────────────────────────────
-def check_admin():
-    if "is_admin" not in st.session_state:
-        st.session_state.is_admin = False
-    return st.session_state.is_admin
+def select_day(d):
+    st.session_state.selected_date = d
+    st.session_state.edit_event_id = None
+
+def save_event(d):
+    supabase.table("clc_events").insert({
+        "title": d["title"].strip(), "event_type": d["etype"],
+        "event_date": str(d["ev_date"]),
+        "end_date": str(d["end_date"]) if d["end_date"] and d["end_date"] != d["ev_date"] else None,
+        "start_time": str(d["start_t"]) if d["start_t"] else None,
+        "end_time": str(d["end_t"]) if d["end_t"] else None,
+        "location": d["location"].strip(), "added_by": d["who"].strip(), "notes": d["notes"].strip(),
+    }).execute()
+
+def upd_event(ev_id, d):
+    supabase.table("clc_events").update({
+        "title": d["title"].strip(), "event_type": d["etype"],
+        "event_date": str(d["ev_date"]),
+        "end_date": str(d["end_date"]) if d["end_date"] and d["end_date"] != d["ev_date"] else None,
+        "start_time": str(d["start_t"]) if d["start_t"] else None,
+        "end_time": str(d["end_t"]) if d["end_t"] else None,
+        "location": d["location"].strip(), "added_by": d["who"].strip(), "notes": d["notes"].strip(),
+    }).eq("id", ev_id).execute()
+
+def del_event(ev_id):
+    supabase.table("clc_events").delete().eq("id", ev_id).execute()
+
+# ─── REUSABLE EVENT FORM ─────────────────────────────────────────────────────────
+def event_form(key, default_date=None, existing=None, label="📅 Save Event"):
+    ev = existing or {}
+    d0 = default_date or today
+    with st.form(key, clear_on_submit=(existing is None)):
+        c1, c2 = st.columns(2)
+        with c1:
+            title    = st.text_input("Event title *", value=ev.get("title",""))
+            etype    = st.selectbox("Type", list(EVENT_TYPES.keys()),
+                                    index=list(EVENT_TYPES.keys()).index(ev.get("event_type","Other"))
+                                    if ev.get("event_type") in EVENT_TYPES else 6)
+            who      = st.text_input("Added by *", value=ev.get("added_by",""))
+        with c2:
+            ev_date  = st.date_input("Date *",
+                                     value=datetime.strptime(str(ev.get("event_date",d0))[:10],"%Y-%m-%d").date()
+                                     if ev.get("event_date") else d0)
+            end_date = st.date_input("End date (single-day = leave same)", value=ev_date)
+            location = st.text_input("Location", value=ev.get("location",""))
+        c3, c4 = st.columns(2)
+        with c3: start_t = st.time_input("Start time (optional)", value=None)
+        with c4: end_t   = st.time_input("End time (optional)",   value=None)
+        notes = st.text_area("Notes", value=ev.get("notes",""), height=64)
+        ok = st.form_submit_button(label, type="primary", use_container_width=True)
+        if ok:
+            if not title.strip() or not who.strip():
+                st.warning("Event title and 'Added by' are required.")
+                return False, {}
+            return True, dict(title=title, etype=etype, ev_date=ev_date, end_date=end_date,
+                              start_t=start_t, end_t=end_t, location=location, who=who, notes=notes)
+    return False, {}
 
 # ─── HEADER ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="cal-header">
-  <div style="font-size:3rem">📅</div>
-  <div>
-    <h1>CLC Communal Calendar</h1>
-    <p>Cowandilla Learning Centre — Staff Events, Meetings &amp; Absences</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ─── ADMIN LOGIN ────────────────────────────────────────────────────────────────
-if not check_admin():
-    with st.expander("🔐 Admin Login (required to delete events)", expanded=False):
-        col_pw, col_btn = st.columns([3,1])
-        with col_pw:
-            pw = st.text_input("Password", type="password", key="admin_pw",
-                               label_visibility="collapsed", placeholder="Admin password")
-        with col_btn:
-            if st.button("Sign In", use_container_width=True, type="primary"):
-                if pw == st.secrets.get("CAL_ADMIN_PASSWORD", "CLC2026"):
-                    st.session_state.is_admin = True
-                    st.rerun()
-                else:
-                    st.error("Incorrect password")
-else:
-    col_a, col_b = st.columns([5,1])
-    with col_a:
-        st.success("🔓 Admin mode active — you can delete events.")
-    with col_b:
+hc1, hc2 = st.columns([4, 1])
+with hc1:
+    st.markdown("""
+    <div class="cal-header">
+      <div style="font-size:2.5rem">📅</div>
+      <div>
+        <h1>CLC Communal Calendar</h1>
+        <p>Cowandilla Learning Centre — click any day to view or add events</p>
+      </div>
+    </div>""", unsafe_allow_html=True)
+with hc2:
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    if not st.session_state.is_admin:
+        with st.expander("🔐 Admin"):
+            pw = st.text_input("", type="password", key="admin_pw", placeholder="Admin password")
+            if st.button("Sign In", type="primary", use_container_width=True):
+                if pw == st.secrets.get("CAL_ADMIN_PASSWORD","CLC2026"):
+                    st.session_state.is_admin = True; st.rerun()
+                else: st.error("Incorrect password")
+    else:
+        st.success("🔓 Admin active")
         if st.button("Sign Out", use_container_width=True):
-            st.session_state.is_admin = False
-            st.rerun()
+            st.session_state.is_admin = False; st.rerun()
 
-# ─── LEGEND ─────────────────────────────────────────────────────────────────────
-legend_html = "<div style='display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;'>"
-for etype, cfg in EVENT_TYPES.items():
-    legend_html += f"<span style='font-size:0.78rem;'><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:{cfg['color']};margin-right:4px;vertical-align:middle;'></span>{cfg['emoji']} {etype}</span>"
-legend_html += "</div>"
-st.markdown(legend_html, unsafe_allow_html=True)
+# ─── TODAY STRIP ────────────────────────────────────────────────────────────────
+t_evs = db_events(today, today) + pac_events(db_pac(), today, today)
+t_evs.sort(key=lambda x: str(x.get("start_time","")))
+chips = []
+for ev in t_evs:
+    cfg = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+    t   = fmt_time(ev.get("start_time",""))
+    chips.append(f'<span style="background:{cfg["bg"]};color:{cfg["color"]};border-radius:6px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:500;">{cfg["emoji"]} {ev.get("title","")}{("  "+t) if t else ""}</span>')
+ev_strip = " &nbsp;".join(chips) if chips else '<span style="color:#999;font-size:0.82rem;">No events scheduled today</span>'
+st.markdown(f'<div class="today-strip"><div class="ts-date">📍 Today — {today.strftime("%A %-d %B %Y")}</div><div style="display:flex;flex-wrap:wrap;gap:0.4rem;">{ev_strip}</div></div>', unsafe_allow_html=True)
 
-# ─── ADD EVENT FORM ──────────────────────────────────────────────────────────────
-with st.expander("➕ Add Event", expanded=False):
-    with st.form("add_event", clear_on_submit=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            ev_title = st.text_input("Event title *")
-            ev_type = st.selectbox("Event type", list(EVENT_TYPES.keys()))
-        with col2:
-            ev_date = st.date_input("Date *", value=date.today())
-            ev_end_date = st.date_input("End date (multi-day events)", value=date.today())
-        with col3:
-            ev_start = st.time_input("Start time (optional)", value=None)
-            ev_end = st.time_input("End time (optional)", value=None)
-        col4, col5 = st.columns(2)
-        with col4:
-            ev_location = st.text_input("Location")
-        with col5:
-            ev_who = st.text_input("Added by *")
-        ev_notes = st.text_area("Notes (optional)", height=68)
+# ─── TABS ───────────────────────────────────────────────────────────────────────
+tab_month, tab_week, tab_list = st.tabs(["🗓️ Month", "📋 Week", "📃 Agenda"])
 
-        if st.form_submit_button("📅 Add to Calendar", type="primary", use_container_width=True):
-            if ev_title.strip() and ev_who.strip():
-                supabase.table("clc_events").insert({
-                    "title": ev_title.strip(),
-                    "event_type": ev_type,
-                    "event_date": str(ev_date),
-                    "end_date": str(ev_end_date) if ev_end_date != ev_date else None,
-                    "start_time": str(ev_start) if ev_start else None,
-                    "end_time": str(ev_end) if ev_end else None,
-                    "location": ev_location.strip(),
-                    "added_by": ev_who.strip(),
-                    "notes": ev_notes.strip(),
-                }).execute()
-                st.success(f"✅ '{ev_title}' added to calendar!")
-                st.rerun()
-            else:
-                st.warning("Please enter an event title and your name.")
-
-st.markdown("")
-
-# ─── NAVIGATION ─────────────────────────────────────────────────────────────────
-# Month navigation state
-if "cal_year" not in st.session_state:
-    st.session_state.cal_year = date.today().year
-if "cal_month" not in st.session_state:
-    st.session_state.cal_month = date.today().month
-if "cal_week_start" not in st.session_state:
-    today = date.today()
-    st.session_state.cal_week_start = today - timedelta(days=today.weekday())  # Monday
-
-tab_month, tab_week, tab_list = st.tabs(["🗓️ Month View", "📋 Week View", "📃 List / Agenda"])
-
-# ════════════════════════════════════════════════════════════════════════════════
-# MONTH VIEW
-# ════════════════════════════════════════════════════════════════════════════════
+# ═══════════════ MONTH VIEW ════════════════════════════════════════════════════
 with tab_month:
-    # Nav
-    col_prev, col_title, col_next, col_today = st.columns([1,3,1,1])
-    with col_prev:
+    cp, ct, cn, ctod = st.columns([1,3,1,1])
+    with cp:
         if st.button("◀ Prev", use_container_width=True, key="m_prev"):
-            if st.session_state.cal_month == 1:
-                st.session_state.cal_month = 12
-                st.session_state.cal_year -= 1
-            else:
-                st.session_state.cal_month -= 1
+            if st.session_state.cal_month == 1: st.session_state.cal_month=12; st.session_state.cal_year-=1
+            else: st.session_state.cal_month-=1
             st.rerun()
-    with col_title:
+    with ct:
         mn = datetime(st.session_state.cal_year, st.session_state.cal_month, 1)
         st.markdown(f"<h3 style='text-align:center;margin:0;color:#1a2e4a;'>{mn.strftime('%B %Y')}</h3>", unsafe_allow_html=True)
-    with col_next:
+    with cn:
         if st.button("Next ▶", use_container_width=True, key="m_next"):
-            if st.session_state.cal_month == 12:
-                st.session_state.cal_month = 1
-                st.session_state.cal_year += 1
-            else:
-                st.session_state.cal_month += 1
+            if st.session_state.cal_month == 12: st.session_state.cal_month=1; st.session_state.cal_year+=1
+            else: st.session_state.cal_month+=1
             st.rerun()
-    with col_today:
+    with ctod:
         if st.button("Today", use_container_width=True, key="m_today"):
-            st.session_state.cal_year = date.today().year
-            st.session_state.cal_month = date.today().month
-            st.rerun()
+            st.session_state.cal_year=today.year; st.session_state.cal_month=today.month
+            select_day(today); st.rerun()
 
-    # Fetch events for this month
-    year = st.session_state.cal_year
-    month = st.session_state.cal_month
-    first_day = date(year, month, 1)
-    last_day = date(year, month, calendar.monthrange(year, month)[1])
-    events = db_events(first_day - timedelta(days=7), last_day + timedelta(days=7))
-
-    # Also get PAC meetings
-    pac = db_pac_meetings()
-    for p in pac:
-        if p.get("meeting_date"):
-            events.append({
-                "title": f"{p.get('meeting_type','Ordinary')} PAC Meeting",
-                "event_type": "PAC Meeting",
-                "event_date": p["meeting_date"],
-                "start_time": p.get("start_time"),
-                "location": p.get("location",""),
-                "added_by": "PAC System",
-                "notes": f"Chair: {p.get('chair','—')}",
-                "id": f"pac_{p['id']}"
-            })
-
-    # Build events by date dict
-    events_by_date = {}
-    for ev in events:
-        d = str(ev.get("event_date",""))[:10]
-        if d not in events_by_date:
-            events_by_date[d] = []
-        events_by_date[d].append(ev)
-
-    # Build calendar grid HTML
-    cal = calendar.monthcalendar(year, month)
-    today_str = str(date.today())
+    yr, mo = st.session_state.cal_year, st.session_state.cal_month
+    fd = date(yr, mo, 1)
+    ld = date(yr, mo, calendar.monthrange(yr, mo)[1])
+    evs  = db_events(fd-timedelta(days=7), ld+timedelta(days=7))
+    evs += pac_events(db_pac(), fd-timedelta(days=7), ld+timedelta(days=7))
+    idx  = ev_index(evs)
+    ts   = str(today)
+    ss   = str(st.session_state.selected_date)
 
     html = "<table class='month-grid'><tr>"
-    for day_name in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]:
-        html += f"<th>{day_name}</th>"
+    for dn in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]: html += f"<th>{dn}</th>"
     html += "</tr>"
-
-    for week in cal:
+    for week in calendar.monthcalendar(yr, mo):
         html += "<tr>"
         for day in week:
-            if day == 0:
-                html += "<td class='other-month'></td>"
-            else:
-                d = date(year, month, day)
-                d_str = str(d)
-                is_today = d_str == today_str
-                cell_class = "today" if is_today else ""
-                num_class = "today-num" if is_today else ""
-                html += f"<td class='{cell_class}'>"
-                html += f"<div class='day-num'><span class='{num_class}'>{day}</span></div>"
-                for ev in events_by_date.get(d_str, [])[:4]:
-                    cfg = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
-                    bg = cfg["bg"]; fg = cfg["color"]; em = cfg["emoji"]; ti = ev.get("title","")
-                    html += f"<span class='cal-event' style='background:{bg};color:{fg};' title='{ti}'>{em} {ti}</span>"
-                extra = len(events_by_date.get(d_str, [])) - 4
-                if extra > 0:
-                    html += f"<span style='font-size:0.68rem;color:#888;'>+{extra} more</span>"
-                html += "</td>"
+            if day == 0: html += "<td class='other-month'>&nbsp;</td>"; continue
+            d = date(yr, mo, day); ds = str(d)
+            cls = "today-cell" if ds==ts else ""
+            if ds == ss: cls = "selected-cell"
+            nbadge = f"<span class='today-badge'>{day}</span>" if ds==ts else str(day)
+            html += f"<td class='{cls}'><div class='day-num'>{nbadge}</div>"
+            for ev in idx.get(ds,[])[:3]:
+                cfg = EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])
+                html += f"<span class='cal-chip' style='background:{cfg['bg']};color:{cfg['color']};'>{cfg['emoji']} {ev.get('title','')}</span>"
+            ex = len(idx.get(ds,[]))-3
+            if ex>0: html += f"<span style='font-size:0.65rem;color:#888;'>+{ex} more</span>"
+            html += "</td>"
         html += "</tr>"
     html += "</table>"
-
     st.markdown(html, unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════════════════════════════════
-# WEEK VIEW
-# ════════════════════════════════════════════════════════════════════════════════
+    # Day picker — this week
+    st.markdown("<div style='margin-top:0.6rem;font-size:0.8rem;color:#666;font-weight:600;'>Select a day to view / add events:</div>", unsafe_allow_html=True)
+    wk_mon = today - timedelta(days=today.weekday())
+    pick_cols = st.columns(7)
+    for i, dn in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
+        d = wk_mon + timedelta(days=i)
+        is_sel = str(d) == ss
+        with pick_cols[i]:
+            lbl = f"**{dn} {d.day}**" if is_sel else f"{dn} {d.day}"
+            if st.button(lbl, key=f"mp_{i}", use_container_width=True,
+                         type="primary" if is_sel else "secondary"):
+                select_day(d); st.rerun()
+
+    # Jump to any date
+    jumped = st.date_input("Or jump to:", value=st.session_state.selected_date, key="m_jump", label_visibility="visible")
+    if jumped != st.session_state.selected_date:
+        select_day(jumped); st.session_state.cal_year=jumped.year; st.session_state.cal_month=jumped.month; st.rerun()
+
+    # ── Day panel ──
+    sel = st.session_state.selected_date
+    d_evs = db_events(sel, sel) + pac_events(db_pac(), sel, sel)
+    d_evs.sort(key=lambda x: str(x.get("start_time","")))
+    st.markdown(f"---\n### {'📍 ' if sel==today else ''}{sel.strftime('%A %-d %B %Y')}")
+
+    if not d_evs:
+        st.markdown('<div class="info-box">No events. Use the form below to add one.</div>', unsafe_allow_html=True)
+    for ev in d_evs:
+        cfg = EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])
+        tr  = fmt_time(ev.get("start_time",""))
+        if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
+        eid = ev.get("id",""); pac = str(eid).startswith("pac_")
+        cc1, cc2, cc3 = st.columns([6,1,1])
+        with cc1:
+            st.markdown(f'<div class="ev-card" style="background:{cfg["bg"]};border-left-color:{cfg["color"]};"><h4 style="color:{cfg["color"]};">{cfg["emoji"]} {ev.get("title","")}</h4><div class="meta"><span style="background:{cfg["color"]};color:white;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:10px;">{ev.get("event_type","")}</span>{(" ⏰ "+tr) if tr else ""}{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}</div>{("<div style=\"font-size:0.78rem;color:#555;margin-top:0.25rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}</div>', unsafe_allow_html=True)
+        with cc2:
+            if st.session_state.is_admin and not pac:
+                st.write("")
+                if st.button("✏️", key=f"me_{eid}", help="Edit"):
+                    st.session_state.edit_event_id = eid if st.session_state.edit_event_id!=eid else None; st.rerun()
+        with cc3:
+            if st.session_state.is_admin and not pac:
+                st.write("")
+                if st.button("🗑️", key=f"md_{eid}", help="Delete"):
+                    del_event(eid); st.session_state.edit_event_id=None; st.rerun()
+        if st.session_state.is_admin and st.session_state.edit_event_id==eid and not pac:
+            st.markdown("**✏️ Edit event:**")
+            ok, data = event_form(f"mef_{eid}", existing=ev, label="💾 Save Changes")
+            if ok: upd_event(eid,data); st.session_state.edit_event_id=None; st.success("Updated!"); st.rerun()
+
+    with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
+        ok, data = event_form(f"madd_{str(sel)}", default_date=sel)
+        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
+
+# ═══════════════ WEEK VIEW ═════════════════════════════════════════════════════
 with tab_week:
-    week_start = st.session_state.cal_week_start
-    week_end = week_start + timedelta(days=6)
-
-    col_prev2, col_wtitle, col_next2, col_today2 = st.columns([1,3,1,1])
-    with col_prev2:
+    ws = st.session_state.cal_week_start
+    we = ws + timedelta(days=6)
+    wp, wt, wn, wtod = st.columns([1,3,1,1])
+    with wp:
         if st.button("◀ Prev", use_container_width=True, key="w_prev"):
-            st.session_state.cal_week_start -= timedelta(weeks=1)
-            st.rerun()
-    with col_wtitle:
-        st.markdown(f"<h3 style='text-align:center;margin:0;color:#1a2e4a;'>{fmt_date(week_start)} – {fmt_date(week_end)}</h3>", unsafe_allow_html=True)
-    with col_next2:
+            st.session_state.cal_week_start -= timedelta(weeks=1); st.rerun()
+    with wt:
+        st.markdown(f"<h3 style='text-align:center;margin:0;color:#1a2e4a;'>{fmt_date(ws)} – {fmt_date(we)}</h3>", unsafe_allow_html=True)
+    with wn:
         if st.button("Next ▶", use_container_width=True, key="w_next"):
-            st.session_state.cal_week_start += timedelta(weeks=1)
-            st.rerun()
-    with col_today2:
+            st.session_state.cal_week_start += timedelta(weeks=1); st.rerun()
+    with wtod:
         if st.button("Today", use_container_width=True, key="w_today"):
-            today = date.today()
-            st.session_state.cal_week_start = today - timedelta(days=today.weekday())
-            st.rerun()
+            st.session_state.cal_week_start = today-timedelta(days=today.weekday()); select_day(today); st.rerun()
 
-    events = db_events(week_start, week_end)
-    pac = db_pac_meetings()
-    for p in pac:
-        if p.get("meeting_date"):
-            d = str(p["meeting_date"])[:10]
-            if str(week_start) <= d <= str(week_end):
-                events.append({
-                    "title": f"{p.get('meeting_type','Ordinary')} PAC Meeting",
-                    "event_type": "PAC Meeting",
-                    "event_date": p["meeting_date"],
-                    "start_time": p.get("start_time"),
-                    "location": p.get("location",""),
-                    "added_by": "PAC System",
-                    "notes": f"Chair: {p.get('chair','—')}",
-                    "id": f"pac_{p['id']}"
-                })
+    wevs  = db_events(ws, we) + pac_events(db_pac(), ws, we)
+    widx  = ev_index(wevs)
+    ts    = str(today)
+    ss    = str(st.session_state.selected_date)
+    dnames= ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
-    events_by_date = {}
-    for ev in events:
-        d = str(ev.get("event_date",""))[:10]
-        if d not in events_by_date:
-            events_by_date[d] = []
-        events_by_date[d].append(ev)
-
-    cols = st.columns(7)
-    day_names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-    today_str = str(date.today())
-
-    for i, col in enumerate(cols):
-        d = week_start + timedelta(days=i)
-        d_str = str(d)
-        is_today = d_str == today_str
-        header_style = "today-header" if is_today else ""
-        with col:
-            st.markdown(f"""
-            <div class="week-col">
-              <div class="week-day-header {header_style}">
-                {day_names[i]}<br>
-                <span style="font-size:1.1rem;">{'📍 ' if is_today else ''}{d.day}</span>
-              </div>
-            """, unsafe_allow_html=True)
-
-            day_events = events_by_date.get(d_str, [])
-            if day_events:
-                for ev in day_events:
-                    cfg = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
-                    time_str = fmt_time(ev.get("start_time")) if ev.get("start_time") else ""
-                    st.markdown(f"""
-                    <div style="background:{cfg['bg']};border-left:3px solid {cfg['color']};border-radius:6px;padding:0.4rem 0.5rem;margin-bottom:0.4rem;font-size:0.75rem;">
-                      <div style="font-weight:600;color:{cfg['color']};">{cfg['emoji']} {ev.get('title','')}</div>
-                      {f"<div style='color:#666;'>{time_str}</div>" if time_str else ""}
-                      {f"<div style='color:#888;'>📍 {ev.get('location','')}</div>" if ev.get('location') else ""}
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.markdown("<div style='color:#ccc;font-size:0.75rem;text-align:center;padding-top:1rem;'>—</div>", unsafe_allow_html=True)
-
+    wcols = st.columns(7)
+    for i, wc in enumerate(wcols):
+        d    = ws + timedelta(days=i); ds = str(d)
+        itod = ds==ts; isel = ds==ss
+        top  = "#d4af37" if itod else ("#1a2e4a" if isel else "#e0e0e0")
+        bg   = "#fffef5" if itod else "white"
+        with wc:
+            st.markdown(f'<div class="week-col" style="border-top:3px solid {top};background:{bg};"><div class="week-day-label">{dnames[i]}</div><div class="week-day-num" style="color:{"#d4af37" if itod else "#1a2e4a"};">{d.day}</div>', unsafe_allow_html=True)
+            for ev in widx.get(ds,[]):
+                cfg = EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])
+                t = fmt_time(ev.get("start_time",""))
+                st.markdown(f'<div style="background:{cfg["bg"]};border-left:3px solid {cfg["color"]};border-radius:5px;padding:0.25rem 0.4rem;margin-bottom:0.3rem;font-size:0.72rem;"><span style="font-weight:600;color:{cfg["color"]};">{cfg["emoji"]} {ev.get("title","")}</span>{("<br><span style=\"color:#666;\">"+t+"</span>") if t else ""}{("<br><span style=\"color:#888;\">📍 "+ev.get("location","")+"</span>") if ev.get("location") else ""}</div>', unsafe_allow_html=True)
+            if not widx.get(ds,[]):
+                st.markdown("<div style='color:#ccc;font-size:0.75rem;text-align:center;padding:0.5rem 0;'>—</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+            btnlbl = "✅ Selected" if isel else "📝 Add/View"
+            if st.button(btnlbl, key=f"wsel_{i}", use_container_width=True, type="primary" if isel else "secondary"):
+                select_day(d); st.rerun()
 
-# ════════════════════════════════════════════════════════════════════════════════
-# LIST / AGENDA VIEW
-# ════════════════════════════════════════════════════════════════════════════════
+    # ── Week day panel ──
+    st.markdown("---")
+    sel = st.session_state.selected_date
+    d_evs = db_events(sel, sel) + pac_events(db_pac(), sel, sel)
+    d_evs.sort(key=lambda x: str(x.get("start_time","")))
+    st.markdown(f"### {'📍 ' if sel==today else ''}{sel.strftime('%A %-d %B %Y')}")
+
+    if not d_evs:
+        st.markdown('<div class="info-box">No events. Use the form below to add one.</div>', unsafe_allow_html=True)
+    for ev in d_evs:
+        cfg = EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])
+        tr  = fmt_time(ev.get("start_time",""))
+        if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
+        eid = ev.get("id",""); pac = str(eid).startswith("pac_")
+        cc1,cc2,cc3 = st.columns([6,1,1])
+        with cc1:
+            st.markdown(f'<div class="ev-card" style="background:{cfg["bg"]};border-left-color:{cfg["color"]};"><h4 style="color:{cfg["color"]};">{cfg["emoji"]} {ev.get("title","")}</h4><div class="meta"><span style="background:{cfg["color"]};color:white;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:10px;">{ev.get("event_type","")}</span>{(" ⏰ "+tr) if tr else ""}{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}</div>{("<div style=\"font-size:0.78rem;color:#555;margin-top:0.25rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}</div>', unsafe_allow_html=True)
+        with cc2:
+            if st.session_state.is_admin and not pac:
+                st.write("")
+                if st.button("✏️", key=f"we_{eid}", help="Edit"):
+                    st.session_state.edit_event_id = eid if st.session_state.edit_event_id!=eid else None; st.rerun()
+        with cc3:
+            if st.session_state.is_admin and not pac:
+                st.write("")
+                if st.button("🗑️", key=f"wd_{eid}", help="Delete"):
+                    del_event(eid); st.session_state.edit_event_id=None; st.rerun()
+        if st.session_state.is_admin and st.session_state.edit_event_id==eid and not pac:
+            st.markdown("**✏️ Edit event:**")
+            ok, data = event_form(f"wef_{eid}", existing=ev, label="💾 Save Changes")
+            if ok: upd_event(eid,data); st.session_state.edit_event_id=None; st.success("Updated!"); st.rerun()
+
+    with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
+        ok, data = event_form(f"wadd_{str(sel)}", default_date=sel)
+        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
+
+# ═══════════════ AGENDA VIEW ══════════════════════════════════════════════════
 with tab_list:
-    col_filter1, col_filter2, col_filter3 = st.columns(3)
-    with col_filter1:
-        list_start = st.date_input("From", value=date.today(), key="list_start")
-    with col_filter2:
-        list_end = st.date_input("To", value=date.today() + timedelta(weeks=8), key="list_end")
-    with col_filter3:
-        type_filter = st.multiselect("Filter by type", list(EVENT_TYPES.keys()), default=list(EVENT_TYPES.keys()), key="type_filter")
+    lc1, lc2, lc3 = st.columns(3)
+    with lc1: ls = st.date_input("From", value=today, key="ls")
+    with lc2: le = st.date_input("To",   value=today+timedelta(weeks=8), key="le")
+    with lc3: tf = st.multiselect("Filter type", list(EVENT_TYPES.keys()), default=list(EVENT_TYPES.keys()), key="tf")
 
-    events = db_events(list_start, list_end)
+    # Quick add at top
+    with st.expander("➕ Add New Event"):
+        ok, data = event_form("ladd")
+        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
 
-    # Add PAC meetings
-    pac = db_pac_meetings()
-    for p in pac:
-        if p.get("meeting_date"):
-            d = str(p["meeting_date"])[:10]
-            if str(list_start) <= d <= str(list_end):
-                events.append({
-                    "title": f"{p.get('meeting_type','Ordinary')} PAC Meeting",
-                    "event_type": "PAC Meeting",
-                    "event_date": p["meeting_date"],
-                    "start_time": p.get("start_time"),
-                    "location": p.get("location",""),
-                    "added_by": "PAC System",
-                    "notes": f"Chair: {p.get('chair','—')}",
-                    "id": f"pac_{p['id']}"
-                })
+    st.markdown("---")
+    levs  = db_events(ls, le) + pac_events(db_pac(), ls, le)
+    levs  = [e for e in levs if e.get("event_type") in tf]
+    levs.sort(key=lambda x: (str(x.get("event_date","")), str(x.get("start_time",""))))
 
-    events = [e for e in events if e.get("event_type") in type_filter]
-    events.sort(key=lambda x: (str(x.get("event_date","")), str(x.get("start_time",""))))
-
-    if not events:
+    if not levs:
         st.markdown('<div class="info-box">No events in this date range.</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f"**{len(events)} event{'s' if len(events) != 1 else ''} found**")
-        st.markdown("---")
-
-        current_date = None
-        for ev in events:
-            ev_date = str(ev.get("event_date",""))[:10]
-            if ev_date != current_date:
-                current_date = ev_date
+        st.markdown(f"**{len(levs)} event{'s' if len(levs)!=1 else ''} found**")
+        cur_d = None
+        for ev in levs:
+            eds = str(ev.get("event_date",""))[:10]
+            if eds != cur_d:
+                cur_d = eds
                 try:
-                    d_obj = datetime.strptime(ev_date, "%Y-%m-%d").date()
-                    is_today = d_obj == date.today()
-                    day_label = f"📍 **TODAY** — {d_obj.strftime('%A %-d %B %Y')}" if is_today else f"**{d_obj.strftime('%A %-d %B %Y')}**"
-                    st.markdown(day_label)
-                except:
-                    st.markdown(f"**{ev_date}**")
-
-            cfg = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
-            time_str = ""
-            if ev.get("start_time"):
-                time_str = fmt_time(ev["start_time"])
-                if ev.get("end_time"):
-                    time_str += f" – {fmt_time(ev['end_time'])}"
-
-            col_ev, col_del = st.columns([6,1])
-            with col_ev:
-                st.markdown(f"""
-                <div class="event-card" style="background:{cfg['bg']};border-left-color:{cfg['color']};">
-                  <h4 style="color:{cfg['color']};">{cfg['emoji']} {ev.get('title','')}</h4>
-                  <div class="meta">
-                    <span style="background:{cfg['color']};color:white;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:10px;">{ev.get('event_type','')}</span>
-                    {f" &nbsp;⏰ {time_str}" if time_str else ""}
-                    {f" &nbsp;📍 {ev.get('location','')}" if ev.get('location') else ""}
-                    {f" &nbsp;👤 {ev.get('added_by','')}" if ev.get('added_by') else ""}
-                  </div>
-                  {f"<div style='font-size:0.8rem;color:#555;margin-top:0.3rem;'>{ev.get('notes','')}</div>" if ev.get('notes') else ""}
-                </div>
-                """, unsafe_allow_html=True)
-            with col_del:
-                ev_id = ev.get("id","")
-                if check_admin() and not str(ev_id).startswith("pac_"):
+                    do = datetime.strptime(eds,"%Y-%m-%d").date()
+                    lbl = f"📍 **TODAY — {do.strftime('%A %-d %B %Y')}**" if do==today else f"**{do.strftime('%A %-d %B %Y')}**"
+                    st.markdown(lbl)
+                except: st.markdown(f"**{eds}**")
+            cfg = EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])
+            tr  = fmt_time(ev.get("start_time",""))
+            if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
+            eid = ev.get("id",""); pac = str(eid).startswith("pac_")
+            lc_ev, lc_ed, lc_del = st.columns([6,1,1])
+            with lc_ev:
+                st.markdown(f'<div class="ev-card" style="background:{cfg["bg"]};border-left-color:{cfg["color"]};"><h4 style="color:{cfg["color"]};">{cfg["emoji"]} {ev.get("title","")}</h4><div class="meta"><span style="background:{cfg["color"]};color:white;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:10px;">{ev.get("event_type","")}</span>{(" ⏰ "+tr) if tr else ""}{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}</div>{("<div style=\"font-size:0.78rem;color:#555;margin-top:0.25rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}</div>', unsafe_allow_html=True)
+            with lc_ed:
+                if st.session_state.is_admin and not pac:
                     st.write("")
-                    if st.button("🗑️", key=f"del_ev_{ev_id}", help="Delete event"):
-                        supabase.table("clc_events").delete().eq("id", ev_id).execute()
-                        st.rerun()
+                    if st.button("✏️", key=f"le_{eid}", help="Edit"):
+                        st.session_state.edit_event_id = eid if st.session_state.edit_event_id!=eid else None; st.rerun()
+            with lc_del:
+                if st.session_state.is_admin and not pac:
+                    st.write("")
+                    if st.button("🗑️", key=f"ld_{eid}", help="Delete"):
+                        del_event(eid); st.rerun()
+            if st.session_state.is_admin and st.session_state.edit_event_id==eid and not pac:
+                st.markdown("**✏️ Edit event:**")
+                ok, data = event_form(f"lef_{eid}", existing=ev, label="💾 Save Changes")
+                if ok: upd_event(eid,data); st.session_state.edit_event_id=None; st.success("Updated!"); st.rerun()
 
 # ─── FOOTER ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="text-align:center;padding:2rem 0 1rem;color:#999;font-size:0.8rem;">
-  Cowandilla Learning Centre · Communal Staff Calendar
-</div>
-""", unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;padding:2rem 0 0.5rem;color:#aaa;font-size:0.76rem;">Cowandilla Learning Centre · Communal Staff Calendar</div>', unsafe_allow_html=True)
