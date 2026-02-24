@@ -141,7 +141,7 @@ if not check_admin():
                                label_visibility="collapsed", placeholder="Admin password")
         with col_btn:
             if st.button("Sign In", use_container_width=True, type="primary"):
-                if pw == st.secrets.get("PAC_ADMIN_PASSWORD", "PAC2026"):
+                if pw == st.secrets.get("CAL_ADMIN_PASSWORD", "CLC2026"):
                     st.session_state.is_admin = True
                     st.rerun()
                 else:
