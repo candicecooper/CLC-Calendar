@@ -525,18 +525,40 @@ with tab_students:
 
     type_filter = st.multiselect("Meeting type", STUDENT_EVENT_TYPES, default=STUDENT_EVENT_TYPES, key="s_type")
 
-    # Add new student event
-    with st.expander("➕ Add Student Meeting / Placement"):
-        ok, data = event_form("s_add", default_date=today)
-        if ok:
-            if data.get("etype") not in STUDENT_EVENT_TYPES:
-                st.warning("Please select a student event type (Entry Meeting, Review Meeting, Transition Meeting, or Student Placement).")
-            elif not data.get("student_initials","").strip():
-                st.warning("Please enter student initials.")
-            elif not data.get("program",""):
-                st.warning("Please select a program (JP/PY/SY).")
-            else:
-                save_event(data); st.success(f"✅ Added!"); st.rerun()
+    # Add new student placement — simplified form
+    with st.expander("➕ Add Student Placement"):
+        with st.form("s_add_form", clear_on_submit=True):
+            sa1, sa2 = st.columns(2)
+            with sa1:
+                s_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                s_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
+                s_who      = st.text_input("Added by *", placeholder="Your name")
+            with sa2:
+                s_start = st.date_input("Start date *", value=today, key="s_start")
+                s_end   = st.date_input("End date *",   value=today, key="s_end")
+                s_notes = st.text_area("Notes (optional)", height=96)
+            s_ok = st.form_submit_button("✅ Add Placement", type="primary", use_container_width=True)
+            if s_ok:
+                if not s_initials.strip():
+                    st.warning("Please enter student initials.")
+                elif not s_program:
+                    st.warning("Please select a program.")
+                elif not s_who.strip():
+                    st.warning("Please enter your name.")
+                else:
+                    supabase.table("clc_events").insert({
+                        "title": f"Student Placement — {s_initials.strip()}",
+                        "event_type": "Student Placement",
+                        "event_date": str(s_start),
+                        "end_date": str(s_end) if s_end != s_start else None,
+                        "start_time": None, "end_time": None,
+                        "location": "", "added_by": s_who.strip(),
+                        "notes": s_notes.strip(),
+                        "program": s_program,
+                        "student_initials": s_initials.strip(),
+                    }).execute()
+                    st.success(f"✅ Placement added for {s_initials.strip()}!")
+                    st.rerun()
 
     st.markdown("---")
 
@@ -594,11 +616,46 @@ with tab_students:
                     st.rerun()
 
             if st.session_state.edit_event_id == eid:
-                st.markdown("**✏️ Edit student event:**")
-                ok, data = event_form(f"s_ef_{eid}", existing=ev, label="💾 Save Changes")
-                if ok:
-                    upd_event(eid, data); st.session_state.edit_event_id=None
-                    st.success("Updated!"); st.rerun()
+                st.markdown("**✏️ Edit student placement:**")
+                with st.form(f"s_ef_{eid}", clear_on_submit=False):
+                    ea1, ea2 = st.columns(2)
+                    with ea1:
+                        e_initials = st.text_input("Student initials *", value=ev.get("student_initials",""))
+                        prog_opts  = ["", "JP", "PY", "SY"]
+                        e_program  = st.selectbox("Program *", prog_opts,
+                                                  index=prog_opts.index(ev.get("program","")) if ev.get("program","") in prog_opts else 0)
+                        e_who      = st.text_input("Added by *", value=ev.get("added_by",""))
+                    with ea2:
+                        e_start = st.date_input("Start date *",
+                                                value=datetime.strptime(str(ev.get("event_date",today))[:10],"%Y-%m-%d").date(),
+                                                key=f"es_{eid}")
+                        e_end_raw = ev.get("end_date") or ev.get("event_date", today)
+                        e_end   = st.date_input("End date *",
+                                                value=datetime.strptime(str(e_end_raw)[:10],"%Y-%m-%d").date(),
+                                                key=f"ee_{eid}")
+                        e_notes = st.text_area("Notes (optional)", value=ev.get("notes",""), height=96)
+                    e_ok = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+                    if e_ok:
+                        if not e_initials.strip():
+                            st.warning("Please enter student initials.")
+                        elif not e_program:
+                            st.warning("Please select a program.")
+                        elif not e_who.strip():
+                            st.warning("Please enter your name.")
+                        else:
+                            supabase.table("clc_events").update({
+                                "title": f"Student Placement — {e_initials.strip()}",
+                                "event_type": "Student Placement",
+                                "event_date": str(e_start),
+                                "end_date": str(e_end) if e_end != e_start else None,
+                                "start_time": None, "end_time": None,
+                                "location": "", "added_by": e_who.strip(),
+                                "notes": e_notes.strip(),
+                                "program": e_program,
+                                "student_initials": e_initials.strip(),
+                            }).eq("id", eid).execute()
+                            st.session_state.edit_event_id = None
+                            st.success("Updated!"); st.rerun()
 
 # ─── FOOTER ─────────────────────────────────────────────────────────────────────
 st.markdown("""
