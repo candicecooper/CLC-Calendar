@@ -24,12 +24,15 @@ EVENT_TYPES = {
     "Entry Meeting":         {"color": "#0e7490", "bg": "#cffafe", "emoji": "🚪"},
     "Review Meeting":        {"color": "#c2410c", "bg": "#ffedd5", "emoji": "🔍"},
     "Transition Meeting":    {"color": "#7c3aed", "bg": "#ede9fe", "emoji": "🔄"},
+    "TAC Meeting":           {"color": "#b45309", "bg": "#fef3c7", "emoji": "📎"},
     "Student Placement":     {"color": "#374151", "bg": "#f3f4f6", "emoji": "📋"},
     "Other":                 {"color": "#374151", "bg": "#f3f4f6", "emoji": "📌"},
 }
 
-# Student event types (use initials, program colour coding)
-STUDENT_EVENT_TYPES = ["Entry Meeting", "Review Meeting", "Transition Meeting", "Student Placement"]
+# Student meeting types — appear in BOTH normal calendar AND student placement view
+STUDENT_MEETING_TYPES = ["Entry Meeting", "Review Meeting", "Transition Meeting", "TAC Meeting"]
+# All student-related types
+STUDENT_EVENT_TYPES   = STUDENT_MEETING_TYPES + ["Student Placement"]
 
 # Program colour coding
 PROGRAM_COLORS = {
@@ -504,145 +507,245 @@ with tab_list:
 
 # ═══════════════ STUDENTS VIEW ════════════════════════════════════════════════
 with tab_students:
-    st.markdown("### 👨‍🎓 Student Meetings & Placements")
+    st.markdown("### 👨‍🎓 Student Placements & Meetings")
     st.markdown("""
     <div style="background:#f8faff;border:1px solid #c7d7f0;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.84rem;color:#374151;">
-    Student names are stored as <strong>initials only</strong> for privacy. 
-    Colour coding: 
+    Student names are stored as <strong>initials only</strong> for privacy. &nbsp;
+    Colour coding:&nbsp;
     <span style="background:#dbeafe;color:#1d4ed8;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">JP</span> Junior Primary &nbsp;
     <span style="background:#dcfce7;color:#15803d;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">PY</span> Primary Years &nbsp;
-    <span style="background:#fef9c3;color:#a16207;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">SY</span> Senior Years
-    <br><br>✏️ <strong>All staff</strong> can update student meeting dates using the edit button.
+    <span style="background:#fef9c3;color:#a16207;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">SY</span> Senior Years &nbsp;
+    &nbsp;|&nbsp; ✏️ <strong>All staff</strong> can edit student dates.
     </div>
     """, unsafe_allow_html=True)
 
-    # Filters
-    sc1, sc2, sc3 = st.columns(3)
-    with sc1: s_from = st.date_input("From", value=today, key="s_from")
-    with sc2: s_to   = st.date_input("To",   value=today+timedelta(weeks=16), key="s_to")
-    with sc3:
-        prog_filter = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="s_prog")
+    # ── Sub-tabs ──
+    st_gantt, st_meetings = st.tabs(["📊 Placement Timeline", "📋 Meetings List"])
 
-    type_filter = st.multiselect("Meeting type", STUDENT_EVENT_TYPES, default=STUDENT_EVENT_TYPES, key="s_type")
+    # ════════ PLACEMENT TIMELINE (GANTT STRIP) ════════
+    with st_gantt:
 
-    # Add new student placement — simplified form
-    with st.expander("➕ Add Student Placement"):
-        with st.form("s_add_form", clear_on_submit=True):
-            sa1, sa2 = st.columns(2)
-            with sa1:
-                s_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
-                s_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
-                s_who      = st.text_input("Added by *", placeholder="Your name")
-            with sa2:
-                s_start = st.date_input("Start date *", value=today, key="s_start")
-                s_end   = st.date_input("End date *",   value=today, key="s_end")
-                s_notes = st.text_area("Notes (optional)", height=96)
-            s_ok = st.form_submit_button("✅ Add Placement", type="primary", use_container_width=True)
-            if s_ok:
-                if not s_initials.strip():
-                    st.warning("Please enter student initials.")
-                elif not s_program:
-                    st.warning("Please select a program.")
-                elif not s_who.strip():
-                    st.warning("Please enter your name.")
-                else:
-                    supabase.table("clc_events").insert({
-                        "title": f"Student Placement — {s_initials.strip()}",
-                        "event_type": "Student Placement",
-                        "event_date": str(s_start),
-                        "end_date": str(s_end) if s_end != s_start else None,
-                        "start_time": None, "end_time": None,
-                        "location": "", "added_by": s_who.strip(),
-                        "notes": s_notes.strip(),
-                        "program": s_program,
-                        "student_initials": s_initials.strip(),
-                    }).execute()
-                    st.success(f"✅ Placement added for {s_initials.strip()}!")
-                    st.rerun()
+        g1, g2, g3 = st.columns(3)
+        with g1: g_from = st.date_input("From", value=today - timedelta(days=today.weekday()), key="g_from")
+        with g2: g_to   = st.date_input("To",   value=today + timedelta(weeks=8), key="g_to")
+        with g3: g_prog = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="g_prog")
 
-    st.markdown("---")
+        # Add student placement form
+        with st.expander("➕ Add Student Placement"):
+            with st.form("sg_add_form", clear_on_submit=True):
+                sa1, sa2 = st.columns(2)
+                with sa1:
+                    s_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                    s_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
+                    s_who      = st.text_input("Added by *", placeholder="Your name")
+                with sa2:
+                    s_start = st.date_input("Start date *", value=today, key="sg_start")
+                    s_end   = st.date_input("End date *",   value=today + timedelta(weeks=10), key="sg_end")
+                    s_notes = st.text_area("Notes (optional)", height=96)
+                s_ok = st.form_submit_button("✅ Add Placement", type="primary", use_container_width=True)
+                if s_ok:
+                    if not s_initials.strip():
+                        st.warning("Please enter student initials.")
+                    elif not s_program:
+                        st.warning("Please select a program.")
+                    elif not s_who.strip():
+                        st.warning("Please enter your name.")
+                    else:
+                        supabase.table("clc_events").insert({
+                            "title": f"Student Placement — {s_initials.strip()}",
+                            "event_type": "Student Placement",
+                            "event_date": str(s_start),
+                            "end_date": str(s_end) if s_end != s_start else None,
+                            "start_time": None, "end_time": None,
+                            "location": "", "added_by": s_who.strip(),
+                            "notes": s_notes.strip(),
+                            "program": s_program,
+                            "student_initials": s_initials.strip(),
+                        }).execute()
+                        st.success(f"✅ Placement added for {s_initials.strip()}!")
+                        st.rerun()
 
-    # Fetch and filter
-    all_evs = db_events(s_from, s_to)
-    s_evs   = [e for e in all_evs
-               if e.get("event_type") in type_filter
-               and e.get("event_type") in STUDENT_EVENT_TYPES
-               and e.get("program","") in prog_filter]
-    s_evs.sort(key=lambda x: (str(x.get("event_date","")), x.get("program",""), str(x.get("start_time",""))))
+        st.markdown("---")
 
-    if not s_evs:
-        st.markdown('<div class="info-box">No student events found in this date range.</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f"**{len(s_evs)} event{'s' if len(s_evs)!=1 else ''} found**")
-        cur_d = None
-        for ev in s_evs:
-            eds = str(ev.get("event_date",""))[:10]
-            if eds != cur_d:
-                cur_d = eds
-                try:
-                    do = datetime.strptime(eds,"%Y-%m-%d").date()
-                    lbl = f"📍 **TODAY — {do.strftime('%A %-d %B %Y')}**" if do==today else f"**{do.strftime('%A %-d %B %Y')}**"
-                    st.markdown(lbl)
-                except: st.markdown(f"**{eds}**")
+        # Fetch all placements and meetings in range
+        g_range_start = g_from - timedelta(days=30)  # fetch wider to catch placements that started earlier
+        g_range_end   = g_to   + timedelta(days=30)
+        all_g_evs = db_events(g_range_start, g_range_end)
 
-            prog = ev.get("program","")
-            pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6","label":""})
-            cfg  = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
-            tr   = fmt_time(ev.get("start_time",""))
-            if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
-            eid  = ev.get("id","")
-            init = ev.get("student_initials","")
+        placements = [e for e in all_g_evs
+                      if e.get("event_type") == "Student Placement"
+                      and e.get("program","") in g_prog]
+        meetings   = [e for e in all_g_evs
+                      if e.get("event_type") in STUDENT_MEETING_TYPES]
 
-            cc1, cc2 = st.columns([7,1])
-            with cc1:
-                st.markdown(
-                    f'<div class="student-card" style="background:{pc["bg"]};border-left-color:{pc["color"]};">'
-                    f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">'
-                    f'<span style="background:{pc["color"]};color:white;font-size:0.72rem;font-weight:700;padding:0.15rem 0.55rem;border-radius:10px;">{prog}</span>'
-                    f'<span style="font-weight:700;font-size:0.95rem;color:{pc["color"]};">{cfg["emoji"]} {init or ev.get("title","")}</span>'
-                    f'<span style="background:{pc["bg"]};border:1px solid {pc["color"]};color:{pc["color"]};font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:8px;">{ev.get("event_type","")}</span>'
-                    f'</div>'
-                    f'<div style="font-size:0.78rem;color:#555;">'
-                    f'{(" ⏰ "+tr) if tr else ""}'
-                    f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
-                    f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
-                    f'</div>'
-                    f'{("<div style=\"font-size:0.78rem;color:#555;margin-top:0.2rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}'
-                    f'</div>', unsafe_allow_html=True)
-            with cc2:
-                st.write("")
-                if st.button("✏️", key=f"s_e_{eid}", help="Edit date/details"):
-                    st.session_state.edit_event_id = eid if st.session_state.edit_event_id!=eid else None
-                    st.rerun()
+        if not placements:
+            st.markdown('<div class="info-box">No student placements found. Add one above.</div>', unsafe_allow_html=True)
+        else:
+            # Build list of days to show as columns (Mon–Fri only, within range)
+            days = []
+            d = g_from
+            while d <= g_to:
+                if d.weekday() < 5:  # Mon–Fri only
+                    days.append(d)
+                d += timedelta(days=1)
 
-            if st.session_state.edit_event_id == eid:
-                st.markdown("**✏️ Edit student placement:**")
-                with st.form(f"s_ef_{eid}", clear_on_submit=False):
-                    ea1, ea2 = st.columns(2)
-                    with ea1:
-                        e_initials = st.text_input("Student initials *", value=ev.get("student_initials",""))
-                        prog_opts  = ["", "JP", "PY", "SY"]
-                        e_program  = st.selectbox("Program *", prog_opts,
-                                                  index=prog_opts.index(ev.get("program","")) if ev.get("program","") in prog_opts else 0)
-                        e_who      = st.text_input("Added by *", value=ev.get("added_by",""))
-                    with ea2:
-                        e_start = st.date_input("Start date *",
-                                                value=datetime.strptime(str(ev.get("event_date",today))[:10],"%Y-%m-%d").date(),
-                                                key=f"es_{eid}")
-                        e_end_raw = ev.get("end_date") or ev.get("event_date", today)
-                        e_end   = st.date_input("End date *",
-                                                value=datetime.strptime(str(e_end_raw)[:10],"%Y-%m-%d").date(),
-                                                key=f"ee_{eid}")
-                        e_notes = st.text_area("Notes (optional)", value=ev.get("notes",""), height=96)
-                    e_ok = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
-                    if e_ok:
-                        if not e_initials.strip():
-                            st.warning("Please enter student initials.")
-                        elif not e_program:
-                            st.warning("Please select a program.")
-                        elif not e_who.strip():
-                            st.warning("Please enter your name.")
+            if len(days) > 60:
+                st.warning("Date range is very wide — showing up to 60 school days. Narrow the range for best results.")
+                days = days[:60]
+
+            # Build meeting lookup by student_initials and date
+            meeting_lookup = {}  # (initials, date_str) -> list of meeting types
+            for m in meetings:
+                init = m.get("student_initials","")
+                mdate = str(m.get("event_date",""))[:10]
+                if init:
+                    key = (init, mdate)
+                    meeting_lookup.setdefault(key, []).append(m.get("event_type",""))
+
+            # Meeting dot colours
+            MEETING_DOTS = {
+                "Entry Meeting":      {"dot": "#0e7490", "label": "E"},
+                "Review Meeting":     {"dot": "#c2410c", "label": "R"},
+                "Transition Meeting": {"dot": "#7c3aed", "label": "T"},
+                "TAC Meeting":        {"dot": "#b45309", "label": "TAC"},
+            }
+
+            # Group placements by program for display
+            prog_order = ["JP", "PY", "SY"]
+            placements.sort(key=lambda x: (prog_order.index(x.get("program","JP")) if x.get("program") in prog_order else 3,
+                                           str(x.get("event_date",""))))
+
+            # Build Gantt HTML table
+            # Header row: dates
+            # Limit column header to show day number only, month on change
+            CELL_W = max(22, min(36, 1100 // max(len(days),1)))
+
+            html = f"""
+<style>
+.gantt-wrap {{overflow-x:auto;}}
+.gantt-table {{border-collapse:collapse;font-family:'Inter',sans-serif;font-size:0.72rem;}}
+.gantt-table th {{background:#1a2e4a;color:white;padding:3px 4px;text-align:center;min-width:{CELL_W}px;white-space:nowrap;border:1px solid #2d4a6e;}}
+.gantt-table td {{border:1px solid #e5e7eb;padding:2px;text-align:center;height:30px;min-width:{CELL_W}px;background:white;}}
+.gantt-table .row-label {{text-align:left;padding:4px 10px;font-weight:700;white-space:nowrap;min-width:90px;background:#f8fafc;border:1px solid #e5e7eb;position:sticky;left:0;z-index:2;}}
+.gantt-table .prog-head {{text-align:left;padding:5px 10px;font-size:0.75rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;border:1px solid #e5e7eb;}}
+.gantt-bar {{border-radius:4px;height:22px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:white;position:relative;}}
+.gantt-dot {{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;color:white;font-size:0.6rem;font-weight:800;margin:1px;}}
+.gantt-today {{background:#fffbeb!important;border-left:2px solid #d4af37!important;border-right:2px solid #d4af37!important;}}
+.gantt-weekend {{background:#f9fafb!important;}}
+</style>
+<div class="gantt-wrap">
+<table class="gantt-table">
+<tr>
+  <th class="row-label" style="position:sticky;left:0;z-index:3;">Student</th>
+"""
+            # Date headers
+            prev_month = None
+            for d in days:
+                is_today = d == today
+                month_lbl = d.strftime("%b") if d.month != prev_month else ""
+                prev_month = d.month
+                bg = "#d4af37" if is_today else "#1a2e4a"
+                html += f'<th style="background:{bg};">{month_lbl}<br>{d.day}<br><span style="font-weight:400;opacity:0.7;">{d.strftime("%a")[0]}</span></th>'
+            html += "</tr>"
+
+            cur_prog = None
+            for pl in placements:
+                prog = pl.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                init = pl.get("student_initials","") or pl.get("title","?")
+
+                # Program group header row
+                if prog != cur_prog:
+                    cur_prog = prog
+                    prog_bg  = pc["bg"]; prog_col = pc["color"]
+                    html += f'<tr><td class="prog-head" colspan="{len(days)+1}" style="background:{prog_bg};color:{prog_col};">{prog} — {PROGRAM_COLORS.get(prog,{}).get("label","")}</td></tr>'
+
+                pl_start = datetime.strptime(str(pl.get("event_date",""))[:10], "%Y-%m-%d").date()
+                pl_end_raw = pl.get("end_date") or pl.get("event_date")
+                pl_end   = datetime.strptime(str(pl_end_raw)[:10], "%Y-%m-%d").date()
+
+                html += f'<tr><td class="row-label"><span style="color:{pc["color"]};font-weight:700;">{init}</span><br><span style="font-size:0.65rem;color:#888;">{pl_start.strftime("%-d %b")} – {pl_end.strftime("%-d %b")}</span></td>'
+
+                for d in days:
+                    is_today_col = d == today
+                    in_placement = pl_start <= d <= pl_end
+                    ds = str(d)
+                    mtypes = meeting_lookup.get((init, ds), [])
+
+                    td_cls = "gantt-today" if is_today_col else ""
+
+                    if in_placement:
+                        if mtypes:
+                            # Show meeting dots on placement bar
+                            dots_html = ""
+                            for mt in mtypes:
+                                dot_cfg = MEETING_DOTS.get(mt, {"dot":"#374151","label":"?"})
+                                dots_html += f'<span class="gantt-dot" style="background:{dot_cfg["dot"]};" title="{mt}">{dot_cfg["label"]}</span>'
+                            html += f'<td class="{td_cls}" style="background:{pc["bg"]}"><div class="gantt-bar" style="background:{pc["color"]};">{dots_html}</div></td>'
                         else:
+                            # Solid placement bar
+                            html += f'<td class="{td_cls}" style="background:{pc["bg"]};"><div class="gantt-bar" style="background:{pc["color"]};opacity:0.85;">·</div></td>'
+                    else:
+                        # Outside placement — show meeting dots even if not placed (edge case)
+                        if mtypes:
+                            dots_html = "".join([f'<span class="gantt-dot" style="background:{MEETING_DOTS.get(mt,{}).get("dot","#374151")};" title="{mt}">{MEETING_DOTS.get(mt,{}).get("label","?")}</span>' for mt in mtypes])
+                            html += f'<td class="{td_cls}">{dots_html}</td>'
+                        else:
+                            html += f'<td class="{td_cls}"></td>'
+                html += "</tr>"
+
+            html += "</table></div>"
+
+            # Legend
+            html += """
+<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;font-size:0.75rem;align-items:center;">
+<strong>Meeting markers:</strong>
+<span style="background:#0e7490;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">E</span> Entry &nbsp;
+<span style="background:#c2410c;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">R</span> Review &nbsp;
+<span style="background:#7c3aed;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">T</span> Transition &nbsp;
+<span style="background:#b45309;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;font-size:0.55rem;">TAC</span> TAC
+</div>"""
+
+            st.markdown(html, unsafe_allow_html=True)
+
+            # Edit placements
+            st.markdown("---")
+            st.markdown("**✏️ Edit a placement:**")
+            for pl in placements:
+                eid  = pl.get("id","")
+                init = pl.get("student_initials","")
+                prog = pl.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                pl_start = str(pl.get("event_date",""))[:10]
+                pl_end   = str(pl.get("end_date") or pl.get("event_date",""))[:10]
+
+                ec1, ec2 = st.columns([6,1])
+                with ec1:
+                    st.markdown(f'<div style="background:{pc["bg"]};border-left:4px solid {pc["color"]};border-radius:8px;padding:0.5rem 0.8rem;margin-bottom:4px;"><span style="background:{pc["color"]};color:white;font-size:0.7rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:8px;">{prog}</span> <strong>{init}</strong> <span style="color:#888;font-size:0.78rem;">{pl_start} → {pl_end}</span></div>', unsafe_allow_html=True)
+                with ec2:
+                    if st.button("✏️", key=f"sg_e_{eid}"):
+                        st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
+                        st.rerun()
+
+                if st.session_state.edit_event_id == eid:
+                    with st.form(f"sg_ef_{eid}", clear_on_submit=False):
+                        ea1, ea2 = st.columns(2)
+                        with ea1:
+                            e_initials = st.text_input("Student initials *", value=pl.get("student_initials",""))
+                            prog_opts  = ["", "JP", "PY", "SY"]
+                            e_program  = st.selectbox("Program *", prog_opts,
+                                                      index=prog_opts.index(pl.get("program","")) if pl.get("program","") in prog_opts else 0)
+                            e_who = st.text_input("Added by *", value=pl.get("added_by",""))
+                        with ea2:
+                            e_start = st.date_input("Start date *",
+                                                    value=datetime.strptime(str(pl.get("event_date",today))[:10],"%Y-%m-%d").date(),
+                                                    key=f"sge_s_{eid}")
+                            e_end_raw = pl.get("end_date") or pl.get("event_date", today)
+                            e_end = st.date_input("End date *",
+                                                  value=datetime.strptime(str(e_end_raw)[:10],"%Y-%m-%d").date(),
+                                                  key=f"sge_e_{eid}")
+                            e_notes = st.text_area("Notes", value=pl.get("notes",""), height=80)
+                        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
                             supabase.table("clc_events").update({
                                 "title": f"Student Placement — {e_initials.strip()}",
                                 "event_type": "Student Placement",
@@ -653,6 +756,151 @@ with tab_students:
                                 "notes": e_notes.strip(),
                                 "program": e_program,
                                 "student_initials": e_initials.strip(),
+                            }).eq("id", eid).execute()
+                            st.session_state.edit_event_id = None
+                            st.success("Updated!"); st.rerun()
+                    if st.session_state.is_admin:
+                        if st.button("🗑️ Delete this placement", key=f"sg_del_{eid}", type="secondary"):
+                            del_event(eid); st.rerun()
+
+    # ════════ MEETINGS LIST ════════
+    with st_meetings:
+        ml1, ml2, ml3 = st.columns(3)
+        with ml1: m_from = st.date_input("From", value=today, key="m_from")
+        with ml2: m_to   = st.date_input("To",   value=today+timedelta(weeks=12), key="m_to")
+        with ml3: m_prog = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="m_prog_f")
+
+        m_types = st.multiselect("Meeting type", STUDENT_MEETING_TYPES, default=STUDENT_MEETING_TYPES, key="m_type_f")
+
+        # Add student meeting
+        with st.expander("➕ Add Student Meeting"):
+            with st.form("sm_add_form", clear_on_submit=True):
+                sma1, sma2 = st.columns(2)
+                with sma1:
+                    sm_type     = st.selectbox("Meeting type *", STUDENT_MEETING_TYPES)
+                    sm_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                    sm_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
+                    sm_who      = st.text_input("Added by *", placeholder="Your name")
+                with sma2:
+                    sm_date  = st.date_input("Meeting date *", value=today, key="sm_date")
+                    sm_time  = st.time_input("Time (optional)", value=None)
+                    sm_loc   = st.text_input("Location (optional)")
+                    sm_notes = st.text_area("Notes (optional)", height=80)
+                sm_ok = st.form_submit_button("✅ Add Meeting", type="primary", use_container_width=True)
+                if sm_ok:
+                    if not sm_initials.strip():
+                        st.warning("Please enter student initials.")
+                    elif not sm_program:
+                        st.warning("Please select a program.")
+                    elif not sm_who.strip():
+                        st.warning("Please enter your name.")
+                    else:
+                        supabase.table("clc_events").insert({
+                            "title": f"{sm_type} — {sm_initials.strip()}",
+                            "event_type": sm_type,
+                            "event_date": str(sm_date),
+                            "end_date": None,
+                            "start_time": str(sm_time) if sm_time else None,
+                            "end_time": None,
+                            "location": sm_loc.strip(),
+                            "added_by": sm_who.strip(),
+                            "notes": sm_notes.strip(),
+                            "program": sm_program,
+                            "student_initials": sm_initials.strip(),
+                        }).execute()
+                        st.success(f"✅ {sm_type} added for {sm_initials.strip()}!")
+                        st.rerun()
+
+        st.markdown("---")
+
+        m_evs = db_events(m_from, m_to)
+        m_evs = [e for e in m_evs
+                 if e.get("event_type") in m_types
+                 and e.get("program","") in m_prog]
+        m_evs.sort(key=lambda x: (str(x.get("event_date","")), str(x.get("start_time",""))))
+
+        if not m_evs:
+            st.markdown('<div class="info-box">No student meetings found in this date range. Add one above.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f"**{len(m_evs)} meeting{'s' if len(m_evs)!=1 else ''} found**")
+            cur_d = None
+            for ev in m_evs:
+                eds = str(ev.get("event_date",""))[:10]
+                if eds != cur_d:
+                    cur_d = eds
+                    try:
+                        do  = datetime.strptime(eds,"%Y-%m-%d").date()
+                        lbl = f"📍 **TODAY — {do.strftime('%A %-d %B %Y')}**" if do==today else f"**{do.strftime('%A %-d %B %Y')}**"
+                        st.markdown(lbl)
+                    except: st.markdown(f"**{eds}**")
+
+                prog = ev.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                cfg  = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+                tr   = fmt_time(ev.get("start_time",""))
+                eid  = ev.get("id","")
+                init = ev.get("student_initials","")
+
+                mc1, mc2, mc3 = st.columns([6,1,1])
+                with mc1:
+                    st.markdown(
+                        f'<div class="student-card" style="background:{pc["bg"]};border-left-color:{cfg["color"]};">'
+                        f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">'
+                        f'<span style="background:{pc["color"]};color:white;font-size:0.7rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:8px;">{prog}</span>'
+                        f'<span style="background:{cfg["color"]};color:white;font-size:0.7rem;padding:0.1rem 0.45rem;border-radius:8px;">{cfg["emoji"]} {ev.get("event_type","")}</span>'
+                        f'<strong style="color:#1a2e4a;">{init}</strong>'
+                        f'</div>'
+                        f'<div style="font-size:0.78rem;color:#555;">'
+                        f'{(" ⏰ "+tr) if tr else ""}'
+                        f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
+                        f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
+                        f'</div>'
+                        f'{("<div style=\"font-size:0.78rem;color:#666;margin-top:0.2rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}'
+                        f'</div>', unsafe_allow_html=True)
+                with mc2:
+                    st.write("")
+                    if st.button("✏️", key=f"sm_e_{eid}"):
+                        st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
+                        st.rerun()
+                with mc3:
+                    if st.session_state.is_admin:
+                        st.write("")
+                        if st.button("🗑️", key=f"sm_d_{eid}"):
+                            del_event(eid); st.rerun()
+
+                if st.session_state.edit_event_id == eid:
+                    st.markdown("**✏️ Edit meeting:**")
+                    with st.form(f"sm_ef_{eid}", clear_on_submit=False):
+                        ef1, ef2 = st.columns(2)
+                        with ef1:
+                            etype_opts = STUDENT_MEETING_TYPES
+                            e_mtype    = st.selectbox("Meeting type *", etype_opts,
+                                                      index=etype_opts.index(ev.get("event_type")) if ev.get("event_type") in etype_opts else 0)
+                            e_init     = st.text_input("Student initials *", value=ev.get("student_initials",""))
+                            prog_opts  = ["", "JP", "PY", "SY"]
+                            e_prog     = st.selectbox("Program *", prog_opts,
+                                                      index=prog_opts.index(ev.get("program","")) if ev.get("program","") in prog_opts else 0)
+                            e_who_m    = st.text_input("Added by *", value=ev.get("added_by",""))
+                        with ef2:
+                            e_mdate = st.date_input("Date *",
+                                                    value=datetime.strptime(str(ev.get("event_date",today))[:10],"%Y-%m-%d").date(),
+                                                    key=f"sme_d_{eid}")
+                            e_mtime = st.time_input("Time (optional)", value=None, key=f"sme_t_{eid}")
+                            e_mloc  = st.text_input("Location", value=ev.get("location",""))
+                            e_mnotes= st.text_area("Notes", value=ev.get("notes",""), height=80)
+                        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                            supabase.table("clc_events").update({
+                                "title": f"{e_mtype} — {e_init.strip()}",
+                                "event_type": e_mtype,
+                                "event_date": str(e_mdate),
+                                "end_date": None,
+                                "start_time": str(e_mtime) if e_mtime else None,
+                                "end_time": None,
+                                "location": e_mloc.strip(),
+                                "added_by": e_who_m.strip(),
+                                "notes": e_mnotes.strip(),
+                                "program": e_prog,
+                                "student_initials": e_init.strip(),
                             }).eq("id", eid).execute()
                             st.session_state.edit_event_id = None
                             st.success("Updated!"); st.rerun()
