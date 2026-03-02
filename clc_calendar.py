@@ -86,7 +86,8 @@ hr { border: none; border-top: 1px solid #eaecf0; margin: 0.75rem 0; }
 today = date.today()
 for k, v in [("cal_year", today.year), ("cal_month", today.month),
               ("cal_week_start", today - timedelta(days=today.weekday())),
-              ("selected_date", today), ("is_admin", False), ("edit_event_id", None)]:
+              ("selected_date", today), ("is_admin", False), ("edit_event_id", None),
+              ("pending_bulletin", None)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -161,6 +162,84 @@ def upd_event(ev_id, d):
 
 def del_event(ev_id):
     supabase.table("clc_events").delete().eq("id", ev_id).execute()
+
+# ─── BULLETIN INTEGRATION ────────────────────────────────────────────────────────
+def post_to_bulletin(ev_data):
+    """Write a calendar event as a notice to the Daily Bulletin."""
+    title = ev_data["title"]
+    etype = ev_data["etype"]
+    ev_date = ev_data["ev_date"]
+    cfg = EVENT_TYPES.get(etype, EVENT_TYPES["Other"])
+
+    # Build body with available details
+    parts = []
+    if ev_data.get("start_t"):
+        t = ev_data["start_t"]
+        time_str = t.strftime("%-I:%M %p") if hasattr(t, 'strftime') else str(t)[:5]
+        if ev_data.get("end_t"):
+            e = ev_data["end_t"]
+            end_str = e.strftime("%-I:%M %p") if hasattr(e, 'strftime') else str(e)[:5]
+            parts.append(f"⏰ {time_str} – {end_str}")
+        else:
+            parts.append(f"⏰ {time_str}")
+    if ev_data.get("location", "").strip():
+        parts.append(f"📍 {ev_data['location'].strip()}")
+    if ev_data.get("notes", "").strip():
+        parts.append(ev_data["notes"].strip())
+
+    # Map event type to bulletin category
+    cat_map = {
+        "Staff Meeting": "General", "PAC Meeting": "General",
+        "PD / Professional Dev": "General", "Team Meeting": "General",
+        "Excursion / Event": "General", "Planned Staff Absence": "Reminder",
+        "Staff Birthday": "General", "Entry Meeting": "Student Info",
+        "Review Meeting": "Student Info", "Transition Meeting": "Student Info",
+        "TAC Meeting": "Student Info", "Student Placement": "Student Info",
+        "Other": "General",
+    }
+    category = cat_map.get(etype, "General")
+
+    try:
+        supabase.table("bulletin_notices").insert({
+            "submitted_by": ev_data.get("who", "Calendar").strip(),
+            "category": category,
+            "title": f"{cfg['emoji']} {title}",
+            "body": "\n".join(parts),
+            "notice_date": str(ev_date),
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Could not post to bulletin: {e}")
+        return False
+
+def bulletin_prompt():
+    """Show the 'Add to Daily Bulletin?' prompt after saving an event."""
+    pb = st.session_state.get("pending_bulletin")
+    if not pb:
+        return
+    ev_date = pb["ev_date"]
+    title = pb["title"]
+    date_str = ev_date.strftime("%-d %B") if hasattr(ev_date, 'strftime') else str(ev_date)
+
+    st.markdown(
+        f'<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;'
+        f'padding:1rem 1.2rem;margin:0.75rem 0;">'
+        f'<div style="font-size:1rem;font-weight:700;color:#15803d;margin-bottom:0.4rem;">'
+        f'📋 Add to Daily Bulletin?</div>'
+        f'<div style="font-size:0.87rem;color:#374151;">Would you like to post '
+        f'<strong>{title}</strong> as a notice on the bulletin for <strong>{date_str}</strong>?</div>'
+        f'</div>', unsafe_allow_html=True)
+    bc1, bc2, bc3 = st.columns([2, 2, 4])
+    with bc1:
+        if st.button("✅ Yes, post it", key="bulletin_yes", type="primary", use_container_width=True):
+            if post_to_bulletin(pb):
+                st.success(f"✅ Posted to bulletin for {date_str}!")
+            st.session_state.pending_bulletin = None
+            st.rerun()
+    with bc2:
+        if st.button("✖ No thanks", key="bulletin_no", use_container_width=True):
+            st.session_state.pending_bulletin = None
+            st.rerun()
 
 # ─── EVENT FORM ──────────────────────────────────────────────────────────────────
 def event_form(key, default_date=None, existing=None, label="📅 Save Event"):
@@ -404,7 +483,13 @@ with tab_month:
 
     with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
         ok, data = event_form(f"madd_{str(sel)}", default_date=sel)
-        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
+        if ok:
+            save_event(data)
+            st.success(f"✅ '{data['title']}' added!")
+            st.session_state.pending_bulletin = data
+            st.rerun()
+
+    bulletin_prompt()
 
 # ═══════════════ WEEK VIEW ═════════════════════════════════════════════════════
 with tab_week:
@@ -471,7 +556,13 @@ with tab_week:
 
     with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
         ok, data = event_form(f"wadd_{str(sel)}", default_date=sel)
-        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
+        if ok:
+            save_event(data)
+            st.success(f"✅ '{data['title']}' added!")
+            st.session_state.pending_bulletin = data
+            st.rerun()
+
+    bulletin_prompt()
 
 # ═══════════════ AGENDA VIEW ══════════════════════════════════════════════════
 with tab_list:
@@ -482,7 +573,13 @@ with tab_list:
 
     with st.expander("➕ Add New Event"):
         ok, data = event_form("ladd")
-        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
+        if ok:
+            save_event(data)
+            st.success(f"✅ '{data['title']}' added!")
+            st.session_state.pending_bulletin = data
+            st.rerun()
+
+    bulletin_prompt()
 
     st.markdown("---")
     levs  = db_events(ls, le) + pac_events(db_pac(), ls, le)
