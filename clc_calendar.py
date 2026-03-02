@@ -1,1524 +1,1347 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date, datetime, timedelta
-import json
-import base64
-import requests
-import smtplib
-import ssl
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from email.utils import formatdate
+import calendar
 
-# ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="CLC Committees",
-    page_icon="🏛️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# ─── PAGE CONFIG ────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="CLC Calendar", page_icon="📅", layout="wide", initial_sidebar_state="collapsed")
 
-# ─── SUPABASE ─────────────────────────────────────────────────────────────────
+# ─── SUPABASE ───────────────────────────────────────────────────────────────────
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 supabase = init_supabase()
 
-# ─── COMMITTEE CONFIG ─────────────────────────────────────────────────────────
-COMMITTEES = {
-    "PAC": {
-        "emoji": "🏛️",
-        "color": "#1a2e44",
-        "bg":    "#e8edf3",
-        "border":"#7a9cbf",
-        "desc":  "Personnel Advisory Committee",
-        "password_key": "PAC_PASSWORD",
-        "default_pw":   "pac2026",
-        "members_default": ["Principal", "Staff Rep 1", "Staff Rep 2", "Community Rep"],
-    },
-    "Finance": {
-        "emoji": "💰",
-        "color": "#065f46",
-        "bg":    "#d1fae5",
-        "border":"#6ee7b7",
-        "desc":  "Budget · Expenditure · Financial Reports",
-        "password_key": "FINANCE_PASSWORD",
-        "default_pw":   "finance2026",
-        "members_default": ["Principal", "Finance Officer", "Staff Rep 1", "Staff Rep 2"],
-    },
-    "WHS": {
-        "emoji": "🦺",
-        "color": "#92400e",
-        "bg":    "#fef3c7",
-        "border":"#fcd34d",
-        "desc":  "Safety · Hazards · Compliance",
-        "password_key": "WHS_PASSWORD",
-        "default_pw":   "whs2026",
-        "members_default": ["Principal", "WHS Officer", "Staff Rep 1", "Staff Rep 2"],
-    },
-    "Social Club": {
-        "emoji": "🎉",
-        "color": "#7c3aed",
-        "bg":    "#ede9fe",
-        "border":"#c4b5fd",
-        "desc":  "Events · Activities · Staff Wellbeing",
-        "password_key": "SOCIAL_PASSWORD",
-        "default_pw":   "social2026",
-        "members_default": ["Social Club Lead", "Staff Rep 1", "Staff Rep 2", "Staff Rep 3"],
-    },
+# ─── EVENT TYPES ────────────────────────────────────────────────────────────────
+EVENT_TYPES = {
+    "Staff Meeting":         {"color": "#1a2e4a", "bg": "#e8edf3", "emoji": "👥"},
+    "PAC Meeting":           {"color": "#6d28d9", "bg": "#ede9fe", "emoji": "🏛️"},
+    "PD / Professional Dev": {"color": "#065f46", "bg": "#d1fae5", "emoji": "📚"},
+    "Team Meeting":          {"color": "#1d4ed8", "bg": "#dbeafe", "emoji": "🤝"},
+    "Excursion / Event":     {"color": "#92400e", "bg": "#fef3c7", "emoji": "🎒"},
+    "Planned Staff Absence": {"color": "#b91c1c", "bg": "#fee2e2", "emoji": "🏠"},
+    "Staff Birthday":        {"color": "#be185d", "bg": "#fce7f3", "emoji": "🎂"},
+    "Entry Meeting":         {"color": "#0e7490", "bg": "#cffafe", "emoji": "🚪"},
+    "Review Meeting":        {"color": "#c2410c", "bg": "#ffedd5", "emoji": "🔍"},
+    "Transition Meeting":    {"color": "#7c3aed", "bg": "#ede9fe", "emoji": "🔄"},
+    "TAC Meeting":           {"color": "#b45309", "bg": "#fef3c7", "emoji": "📎"},
+    "Student Placement":     {"color": "#374151", "bg": "#f3f4f6", "emoji": "📋"},
+    "Other":                 {"color": "#374151", "bg": "#f3f4f6", "emoji": "📌"},
 }
 
-ADMIN_PASSWORD_KEY = "COMMITTEE_ADMIN_PASSWORD"
-ADMIN_DEFAULT_PW   = "clcadmin2026"
+# Student meeting types — appear in BOTH normal calendar AND student placement view
+STUDENT_MEETING_TYPES = ["Entry Meeting", "Review Meeting", "Transition Meeting", "TAC Meeting"]
+# All student-related types
+STUDENT_EVENT_TYPES   = STUDENT_MEETING_TYPES + ["Student Placement"]
 
-# ─── DfE MEETING STRUCTURE ────────────────────────────────────────────────────
-DFE_AGENDA_SECTIONS = [
-    "Welcome & Opening",
-    "Attendance & Apologies",
-    "Confirmation of Previous Minutes",
-    "Business Arising from Previous Minutes",
-    "Agenda Items",
-    "Other Business",
-    "Date of Next Meeting",
-    "Close",
-]
+# Program colour coding
+PROGRAM_COLORS = {
+    "JP": {"color": "#1d4ed8", "bg": "#dbeafe", "label": "Junior Primary"},
+    "PY": {"color": "#15803d", "bg": "#dcfce7", "label": "Primary Years"},
+    "SY": {"color": "#a16207", "bg": "#fef9c3", "label": "Senior Years"},
+}
 
-# ─── STYLES ──────────────────────────────────────────────────────────────────
+# ─── STYLES ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .main { background: #f0f2f6; }
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1200px; }
-.comm-header {
+.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1300px; }
+.cal-header {
+    background: linear-gradient(135deg, #1a2e4a 0%, #2d4a6e 60%, #3a5f8a 100%);
     color: white; padding: 1.25rem 2rem; border-radius: 12px;
     margin-bottom: 1rem; display: flex; align-items: center;
-    gap: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    gap: 1.5rem; box-shadow: 0 4px 20px rgba(26,46,74,0.25);
 }
-.comm-header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
-.comm-header p  { margin: 0.2rem 0 0; opacity: 0.8; font-size: 0.88rem; }
-.card { background: white; border-radius: 12px; padding: 1.25rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.07); margin-bottom: 1rem; }
-.section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-                 letter-spacing: 0.06em; color: #888; margin-bottom: 0.3rem; }
-.agenda-item { background: #f8faff; border: 1px solid #e0e7ef; border-radius: 10px;
-               padding: 0.9rem 1.1rem; margin-bottom: 0.6rem;
-               border-left: 4px solid #4a6cf7; }
-.minutes-card { background: white; border-radius: 10px; padding: 1rem 1.25rem;
-                box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin-bottom: 0.75rem;
-                border-left: 5px solid; }
-.status-badge { font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem;
-                border-radius: 20px; display: inline-block; }
-.next-meeting-box { border-radius: 12px; padding: 1.25rem 1.5rem;
-                    border: 2px solid; margin-bottom: 1rem; }
-.dfe-section { background: #f8fafc; border-radius: 10px; padding: 0.9rem 1.1rem;
-               margin-bottom: 0.75rem; border-left: 4px solid #1a2e44; }
-.dfe-section h4 { margin: 0 0 0.4rem; color: #1a2e44; font-size: 0.9rem; font-weight: 700; }
-.ai-box { background: linear-gradient(135deg,#f0f9ff,#e0f2fe); border: 1.5px solid #7dd3fc;
-          border-radius: 12px; padding: 1.1rem 1.3rem; margin-bottom: 1rem; }
-.ai-box h4 { color: #0369a1; margin: 0 0 0.4rem; font-size: 0.95rem; }
-.info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
-            padding: 0.6rem 0.9rem; font-size: 0.84rem; color: #1e40af; margin-bottom: 0.75rem; }
-.stButton>button { border-radius: 7px; font-weight: 500; }
+.cal-header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.cal-header p  { margin: 0.2rem 0 0; opacity: 0.75; font-size: 0.88rem; }
+.month-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.month-grid th { background: #1a2e4a; color: white; padding: 0.5rem; text-align: center; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; }
+.month-grid td { border: 1px solid #dde; vertical-align: top; padding: 0.35rem; background: white; width: 14.28%; min-height: 80px; }
+.month-grid td.today-cell   { background: #fffbeb; border: 2px solid #d4af37; }
+.month-grid td.selected-cell { background: #dbeafe !important; border: 2px solid #1a2e4a !important; }
+.month-grid td.other-month  { background: #f8f8fb; }
+.day-num { font-size: 0.78rem; font-weight: 600; color: #1a2e4a; margin-bottom: 0.15rem; }
+.today-badge { background: #1a2e4a; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; }
+.cal-chip { font-size: 0.66rem; padding: 0.1rem 0.35rem; border-radius: 3px; margin-bottom: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.week-col { background: white; border-radius: 10px; padding: 0.6rem 0.5rem; min-height: 180px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-top: 3px solid #e0e0e0; }
+.week-day-label { font-size: 0.72rem; color: #888; text-transform: uppercase; font-weight: 600; }
+.week-day-num   { font-size: 1.2rem; font-weight: 700; color: #1a2e4a; line-height: 1.2; }
+.today-strip { background: linear-gradient(90deg,#fffbeb,#fef9e7); border: 1px solid #d4af37; border-radius: 10px; padding: 0.65rem 1.2rem; margin-bottom: 0.75rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+.ts-date { font-weight: 700; font-size: 0.95rem; color: #92400e; }
+.ev-card { border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; border-left: 4px solid; font-size: 0.85rem; }
+.ev-card h4 { margin: 0 0 0.15rem; font-size: 0.88rem; }
+.ev-card .meta { font-size: 0.74rem; color: #666; }
+.info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.84rem; color: #1e40af; margin-bottom: 0.75rem; }
+.add-prompt { background: #f0fdf4; border: 2px dashed #86efac; border-radius: 10px; padding: 0.8rem 1rem; font-size: 0.85rem; color: #15803d; margin-bottom: 0.75rem; text-align: center; font-weight: 500; }
 hr { border: none; border-top: 1px solid #eaecf0; margin: 0.75rem 0; }
+.stButton>button { border-radius: 7px; font-weight: 500; }
+.prog-badge { font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 12px; display: inline-block; margin-right: 0.3rem; }
+.student-card { border-radius: 10px; padding: 0.7rem 1rem; margin-bottom: 0.5rem; border-left: 5px solid; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── SESSION STATE ────────────────────────────────────────────────────────────
+# ─── SESSION STATE ───────────────────────────────────────────────────────────────
 today = date.today()
-defaults = {
-    "selected_committee": None,
-    "auth": {},          # {committee: True/False}
-    "is_admin": False,
-    "edit_minutes_id": None,
-    "ai_result": None,
-}
-for k, v in defaults.items():
+for k, v in [("cal_year", today.year), ("cal_month", today.month),
+              ("cal_week_start", today - timedelta(days=today.weekday())),
+              ("selected_date", today), ("is_admin", False), ("edit_event_id", None),
+              ("selected_event_id", None), ("quick_add_open", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
-def get_pw(committee):
-    cfg = COMMITTEES[committee]
-    return st.secrets.get(cfg["password_key"], cfg["default_pw"])
+# ─── DB HELPERS ─────────────────────────────────────────────────────────────────
+def db_events(start_date=None, end_date=None):
+    q = supabase.table("clc_events").select("*").order("event_date").order("start_time")
+    if start_date: q = q.gte("event_date", str(start_date))
+    if end_date:   q = q.lte("event_date", str(end_date))
+    return q.execute().data
 
-def is_authed(committee):
-    return st.session_state.auth.get(committee, False)
+def db_events_all():
+    return supabase.table("clc_events").select("*").order("event_date").execute().data
+
+def db_pac():
+    try: return supabase.table("pac_meetings").select("*").order("meeting_date").execute().data
+    except: return []
+
+def pac_events(pac_list, d_from=None, d_to=None):
+    out = []
+    for p in pac_list:
+        if not p.get("meeting_date"): continue
+        d = str(p["meeting_date"])[:10]
+        if d_from and d < str(d_from): continue
+        if d_to   and d > str(d_to):   continue
+        out.append({"title": f"{p.get('meeting_type','Ordinary')} PAC Meeting",
+                    "event_type": "PAC Meeting", "event_date": p["meeting_date"],
+                    "start_time": p.get("start_time"), "location": p.get("location",""),
+                    "added_by": "PAC System", "notes": f"Chair: {p.get('chair','—')}",
+                    "id": f"pac_{p['id']}"})
+    return out
+
+def ev_index(events):
+    idx = {}
+    for ev in events:
+        idx.setdefault(str(ev.get("event_date",""))[:10], []).append(ev)
+    return idx
 
 def fmt_date(d):
-    if not d: return "—"
-    try:
-        return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%-d %B %Y")
-    except:
-        return str(d)[:10]
+    try: return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%-d %B %Y")
+    except: return str(d)[:10]
 
 def fmt_time(t):
     if not t: return ""
     try: return datetime.strptime(str(t)[:5], "%H:%M").strftime("%-I:%M %p")
     except: return str(t)[:5]
 
-def file_to_b64(uploaded_file):
-    if uploaded_file is None: return None, None
-    return uploaded_file.name, base64.b64encode(uploaded_file.read()).decode()
+def select_day(d):
+    st.session_state.selected_date = d
+    st.session_state.edit_event_id = None
 
-def b64_download_link(name, b64data, label="⬇ Download"):
-    href = f'data:application/octet-stream;base64,{b64data}'
-    return f'<a href="{href}" download="{name}" style="font-size:0.82rem;color:#1a2e44;font-weight:600;">{label} {name}</a>'
+def save_event(d):
+    supabase.table("clc_events").insert({
+        "title": d["title"].strip(), "event_type": d["etype"],
+        "event_date": str(d["ev_date"]),
+        "end_date": str(d["end_date"]) if d["end_date"] and d["end_date"] != d["ev_date"] else None,
+        "start_time": str(d["start_t"]) if d["start_t"] else None,
+        "end_time": str(d["end_t"]) if d["end_t"] else None,
+        "location": d["location"].strip(), "added_by": d["who"].strip(), "notes": d["notes"].strip(),
+        "program": d.get("program",""), "student_initials": d.get("student_initials",""),
+    }).execute()
 
-# ─── DB FUNCTIONS ─────────────────────────────────────────────────────────────
+def upd_event(ev_id, d):
+    supabase.table("clc_events").update({
+        "title": d["title"].strip(), "event_type": d["etype"],
+        "event_date": str(d["ev_date"]),
+        "end_date": str(d["end_date"]) if d["end_date"] and d["end_date"] != d["ev_date"] else None,
+        "start_time": str(d["start_t"]) if d["start_t"] else None,
+        "end_time": str(d["end_t"]) if d["end_t"] else None,
+        "location": d["location"].strip(), "added_by": d["who"].strip(), "notes": d["notes"].strip(),
+        "program": d.get("program",""), "student_initials": d.get("student_initials",""),
+    }).eq("id", ev_id).execute()
 
-# Agenda items
-def db_agenda_items(committee):
-    try:
-        return supabase.table("committee_agenda_items")\
-            .select("*").eq("committee", committee)\
-            .order("created_at").execute().data or []
-    except Exception as e:
-        st.error(f"Could not load agenda items: {e}")
-        return []
+def del_event(ev_id):
+    supabase.table("clc_events").delete().eq("id", ev_id).execute()
 
-def db_add_agenda_item(row):
-    supabase.table("committee_agenda_items").insert(row).execute()
+# ─── EVENT FORM ──────────────────────────────────────────────────────────────────
+def event_form(key, default_date=None, existing=None, label="📅 Save Event"):
+    ev = existing or {}
+    d0 = default_date or today
+    is_student = ev.get("event_type") in STUDENT_EVENT_TYPES
 
-def db_update_agenda_status(item_id, status):
-    supabase.table("committee_agenda_items").update({"status": status}).eq("id", item_id).execute()
+    with st.form(key, clear_on_submit=(existing is None)):
+        c1, c2 = st.columns(2)
+        with c1:
+            title = st.text_input("Event title *", value=ev.get("title",""),
+                                  placeholder="e.g. Staff meeting, J.S. Entry Meeting")
+            etype = st.selectbox("Type", list(EVENT_TYPES.keys()),
+                                 index=list(EVENT_TYPES.keys()).index(ev.get("event_type","Other"))
+                                 if ev.get("event_type") in EVENT_TYPES else len(EVENT_TYPES)-1)
+            who = st.text_input("Added by *", value=ev.get("added_by",""), placeholder="Your name")
+        with c2:
+            ev_date  = st.date_input("Date *",
+                                     value=datetime.strptime(str(ev.get("event_date",d0))[:10],"%Y-%m-%d").date()
+                                     if ev.get("event_date") else d0)
+            end_date = st.date_input("End date (leave same for single day)", value=ev_date)
+            location = st.text_input("Location", value=ev.get("location",""))
 
-def db_delete_agenda_item(item_id):
-    supabase.table("committee_agenda_items").delete().eq("id", item_id).execute()
+        # Student-specific fields — shown when student event type selected
+        st.markdown("**Student details** *(fill in for Entry/Review/Transition/Placement events)*")
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            student_initials = st.text_input("Student initials (privacy)",
+                                             value=ev.get("student_initials",""),
+                                             placeholder="e.g. J.S.")
+        with sc2:
+            prog_opts = ["", "JP", "PY", "SY"]
+            prog_val  = ev.get("program","") or ""
+            program   = st.selectbox("Program", prog_opts,
+                                     index=prog_opts.index(prog_val) if prog_val in prog_opts else 0)
 
-# Minutes
-def db_minutes(committee):
-    try:
-        return supabase.table("committee_minutes")\
-            .select("id,committee,meeting_date,meeting_type,chair,minutes_taker,created_at,meeting_closed_at,next_meeting_date")\
-            .eq("committee", committee)\
-            .order("meeting_date", desc=True).execute().data or []
-    except Exception as e:
-        st.error(f"Could not load minutes: {e}")
-        return []
+        c3, c4 = st.columns(2)
+        with c3: start_t = st.time_input("Start time (optional)", value=None)
+        with c4: end_t   = st.time_input("End time (optional)",   value=None)
+        notes = st.text_area("Notes", value=ev.get("notes",""), height=64)
+        ok = st.form_submit_button(label, type="primary", use_container_width=True)
+        if ok:
+            if not title.strip() or not who.strip():
+                st.warning("Event title and 'Added by' are required.")
+                return False, {}
+            return True, dict(title=title, etype=etype, ev_date=ev_date, end_date=end_date,
+                              start_t=start_t, end_t=end_t, location=location, who=who,
+                              notes=notes, program=program, student_initials=student_initials)
+    return False, {}
 
-def db_get_minutes(minutes_id):
-    try:
-        result = supabase.table("committee_minutes").select("*").eq("id", minutes_id).execute()
-        return result.data[0] if result.data else None
-    except:
-        return None
+# ─── EVENT DETAIL PANEL ─────────────────────────────────────────────────────────
+def event_detail_panel():
+    """Show a floating detail card for the selected event."""
+    eid = st.session_state.selected_event_id
+    if not eid:
+        return
+    # Load event
+    pac = str(eid).startswith("pac_")
+    if pac:
+        all_pac = db_pac()
+        ev = next((e for e in pac_events(all_pac, date(2000,1,1), date(2099,12,31)) if e.get("id")==eid), None)
+    else:
+        try:
+            res = supabase.table("clc_events").select("*").eq("id", eid).execute()
+            ev  = res.data[0] if res.data else None
+        except:
+            ev = None
+    if not ev:
+        st.session_state.selected_event_id = None
+        return
 
-def db_save_minutes(row):
-    supabase.table("committee_minutes").insert(row).execute()
+    cfg   = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+    prog  = ev.get("program","")
+    if prog and ev.get("event_type") in STUDENT_EVENT_TYPES:
+        pc  = PROGRAM_COLORS.get(prog, {})
+        color = pc.get("color", cfg["color"]); bg = pc.get("bg", cfg["bg"])
+    else:
+        color = cfg["color"]; bg = cfg["bg"]
 
-def db_update_minutes(minutes_id, row):
-    supabase.table("committee_minutes").update(row).eq("id", minutes_id).execute()
+    tr = fmt_time(ev.get("start_time",""))
+    if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
+    edate = fmt_date(ev.get("event_date",""))
+    if ev.get("end_date") and ev["end_date"] != ev.get("event_date"):
+        edate += f" → {fmt_date(ev['end_date'])}"
 
-def db_delete_minutes(minutes_id):
-    supabase.table("committee_minutes").delete().eq("id", minutes_id).execute()
-
-# Scheduled meetings
-def db_scheduled_meetings(committee):
-    try:
-        return supabase.table("committee_scheduled_meetings")\
-            .select("*").eq("committee", committee)\
-            .gte("meeting_date", str(today))\
-            .order("meeting_date").execute().data or []
-    except Exception as e:
-        st.error(f"Could not load scheduled meetings: {e}")
-        return []
-
-def db_all_scheduled(committee):
-    try:
-        return supabase.table("committee_scheduled_meetings")\
-            .select("*").eq("committee", committee)\
-            .order("meeting_date", desc=True).execute().data or []
-    except:
-        return []
-
-def db_save_scheduled(row):
-    return supabase.table("committee_scheduled_meetings").insert(row).execute()
-
-def db_delete_scheduled(sched_id):
-    supabase.table("committee_scheduled_meetings").delete().eq("id", sched_id).execute()
-
-# ─── COMMITTEE MEMBERS (from existing staff table) ───────────────────────────
-def db_get_all_staff():
-    """Load all active staff from the staff_list table."""
-    try:
-        result = supabase.table("staff_list")\
-            .select("id,name,email")\
-            .eq("active", True)\
-            .order("name").execute()
-        return result.data or []
-    except Exception as e:
-        st.error(f"Could not load staff: {e}")
-        return []
-
-def db_get_committee_membership(committee):
-    """Get staff IDs assigned to this committee."""
-    try:
-        result = supabase.table("committee_membership")\
-            .select("staff_id,member_role")\
-            .eq("committee", committee).execute()
-        return {r["staff_id"]: r.get("member_role","Member") for r in (result.data or [])}
-    except:
-        return {}
-
-def db_set_committee_membership(committee, staff_id, member_role):
-    """Add a staff member to a committee."""
-    try:
-        supabase.table("committee_membership").upsert({
-            "committee": committee,
-            "staff_id": staff_id,
-            "member_role": member_role,
-        }, on_conflict="committee,staff_id").execute()
-    except Exception as e:
-        st.error(f"Could not update membership: {e}")
-
-def db_remove_committee_membership(committee, staff_id):
-    """Remove a staff member from a committee."""
-    supabase.table("committee_membership")\
-        .delete().eq("committee", committee).eq("staff_id", staff_id).execute()
-
-def db_get_members(committee):
-    """Get full staff details for committee members."""
-    try:
-        membership = db_get_committee_membership(committee)
-        if not membership:
-            return []
-        all_staff = db_get_all_staff()
-        members = []
-        for s in all_staff:
-            if s["id"] in membership:
-                members.append({
-                    "id":    s["id"],
-                    "name":  s["name"],
-                    "email": s["email"],
-                    "role":  membership[s["id"]],
-                })
-        return members
-    except:
-        return []
-
-# ─── ICS CALENDAR INVITE GENERATOR ──────────────────────────────────────────
-def make_ics(committee, meeting_date, meeting_time, location, meeting_type, organiser_email):
-    """Generate an .ics calendar invite file."""
-    try:
-        # Parse start datetime
-        time_str = meeting_time.strip() if meeting_time else "15:00"
-        # Try to parse common time formats
-        for fmt in ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p"]:
-            try:
-                t = datetime.strptime(time_str.upper(), fmt)
-                break
-            except:
-                t = datetime.strptime("15:00", "%H:%M")
-        dt_start = datetime.combine(meeting_date, t.time())
-        dt_end = dt_start + timedelta(hours=1)
-
-        uid = f"{committee.lower().replace(' ','-')}-{meeting_date}-{dt_start.strftime('%H%M')}@clc"
-        fmt_dt = lambda d: d.strftime("%Y%m%dT%H%M%S")
-
-        ics = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//CLC Committees//EN
-CALSCALE:GREGORIAN
-METHOD:REQUEST
-BEGIN:VEVENT
-UID:{uid}
-DTSTAMP:{datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}
-DTSTART:{fmt_dt(dt_start)}
-DTEND:{fmt_dt(dt_end)}
-SUMMARY:{committee} Committee — {meeting_type} Meeting
-DESCRIPTION:You are invited to the {committee} Committee {meeting_type} Meeting at Cowandilla Learning Centre.
-LOCATION:{location or 'Cowandilla Learning Centre'}
-ORGANIZER:MAILTO:{organiser_email}
-STATUS:CONFIRMED
-SEQUENCE:0
-END:VEVENT
-END:VCALENDAR"""
-        return ics.encode("utf-8")
-    except Exception as e:
-        return None
-
-# ─── EMAIL SENDING ────────────────────────────────────────────────────────────
-def send_meeting_invites(committee, meeting_date, meeting_time, location,
-                          meeting_type, sender_name, recipients, agenda_items=None):
-    """Send meeting invite emails with ICS attachment to all recipients."""
-    cfg = COMMITTEES[committee]
-
-    # Use same [smtp] secrets format as staff meeting app
-    smtp_conf  = st.secrets.get("smtp", {})
-    smtp_host  = smtp_conf.get("host", "smtp.gmail.com")
-    smtp_port  = int(smtp_conf.get("port", 587))
-    smtp_user  = smtp_conf.get("user", "")
-    smtp_pass  = smtp_conf.get("password", "")
-    from_name  = smtp_conf.get("from_name", "CLC Committees")
-    from_email = smtp_user
-
-    if not smtp_user or not smtp_pass:
-        st.error("⚠️ Email not configured. Add [smtp] section to your Streamlit secrets.")
-        return 0, []
-
-    date_str = fmt_date(meeting_date)
-    time_str = f" at {meeting_time}" if meeting_time else ""
-    loc_str  = f" — {location}" if location else ""
-
-    # Build agenda HTML
-    agenda_html = ""
-    if agenda_items:
-        items_html = "".join(f"<li>{item.get('title','')}</li>" for item in agenda_items if item.get('title'))
-        if items_html:
-            agenda_html = f"""
-            <div style="margin-top:16px;">
-              <strong style="color:#1a2e44;">Proposed Agenda Items:</strong>
-              <ul style="margin:8px 0;padding-left:20px;color:#374151;">{items_html}</ul>
-            </div>"""
-
-    # ICS attachment
-    ics_data = make_ics(committee, meeting_date, meeting_time, location, meeting_type, from_email)
-
-    sent_to = []
-    errors = []
-
-    try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.ehlo()
-            server.starttls(context=context)
-            server.login(smtp_user, smtp_pass)
-
-            for recipient in recipients:
-                name  = recipient.get("name","")
-                email = recipient.get("email","")
-                if not email or "@" not in email:
-                    continue
-
-                msg = MIMEMultipart("mixed")
-                msg["From"]    = f"{sender_name} <{from_email}>"
-                msg["To"]      = f"{name} <{email}>" if name else email
-                msg["Subject"] = f"📅 {committee} Committee — {meeting_type} Meeting | {date_str}"
-                msg["Date"]    = formatdate(localtime=True)
-
-                html_body = f"""
-<html><body style="font-family:'Segoe UI',Arial,sans-serif;color:#222;max-width:600px;margin:0 auto;">
-  <div style="background:linear-gradient(135deg,{cfg['color']},{cfg['color']}cc);
-              color:white;padding:24px 28px;border-radius:12px 12px 0 0;">
-    <div style="font-size:2rem;">{cfg['emoji']}</div>
-    <h2 style="margin:8px 0 4px;font-size:1.3rem;">{committee} Committee</h2>
-    <p style="margin:0;opacity:0.85;font-size:0.9rem;">Meeting Invitation — Cowandilla Learning Centre</p>
-  </div>
-  <div style="background:white;border:1px solid #e5e7eb;border-top:none;
-              padding:24px 28px;border-radius:0 0 12px 12px;">
-    <p style="font-size:1rem;color:#374151;">Dear {name or 'Committee Member'},</p>
-    <p style="color:#374151;">You are invited to the following committee meeting:</p>
-
-    <div style="background:{cfg['bg']};border-left:4px solid {cfg['color']};
-                border-radius:8px;padding:16px 20px;margin:16px 0;">
-      <div style="font-size:1.1rem;font-weight:700;color:{cfg['color']};">
-        {committee} Committee — {meeting_type} Meeting
-      </div>
-      <div style="margin-top:10px;font-size:0.95rem;color:#374151;">
-        <div>📅 <strong>Date:</strong> {date_str}</div>
-        {f'<div>⏰ <strong>Time:</strong> {meeting_time}</div>' if meeting_time else ''}
-        {f'<div>📍 <strong>Location:</strong> {location}</div>' if location else ''}
-      </div>
-    </div>
-
-    {agenda_html}
-
-    <p style="color:#374151;margin-top:16px;">
-      A calendar invite is attached. Please accept to add this to your calendar.
-    </p>
-    <p style="color:#374151;">
-      If you are unable to attend, please send your apologies to {sender_name}.
-    </p>
-
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
-    <p style="font-size:0.78rem;color:#9ca3af;margin:0;">
-      Sent via CLC Committee Management System · Cowandilla Learning Centre
-    </p>
-  </div>
-</body></html>"""
-
-                msg.attach(MIMEText(html_body, "html"))
-
-                # Attach ICS
-                if ics_data:
-                    ics_part = MIMEBase("text", "calendar", method="REQUEST", name="invite.ics")
-                    ics_part.set_payload(ics_data)
-                    encoders.encode_base64(ics_part)
-                    ics_part.add_header("Content-Disposition", "attachment", filename="invite.ics")
-                    msg.attach(ics_part)
-
-                try:
-                    server.sendmail(from_email, email, msg.as_string())
-                    sent_to.append(f"{name} <{email}>")
-                except Exception as e:
-                    errors.append(f"{email}: {e}")
-
-    except Exception as e:
-        st.error(f"SMTP connection error: {e}")
-        return 0, errors
-
-    return len(sent_to), errors
-
-# Calendar integration
-def post_to_calendar(committee, meeting_date, meeting_time, location, meeting_type, added_by):
-    cfg = COMMITTEES[committee]
-    title = f"{committee} Committee — {meeting_type} Meeting"
-    try:
-        supabase.table("clc_events").insert({
-            "title": title,
-            "event_type": "Staff Meeting",
-            "event_date": str(meeting_date),
-            "start_time": meeting_time if meeting_time else None,
-            "location": location or "",
-            "added_by": added_by,
-            "notes": f"Scheduled via {committee} Committee portal",
-        }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Calendar error: {e}")
-        return False
-
-# Bulletin integration
-def post_to_bulletin(committee, meeting_date, meeting_time, location, meeting_type, added_by):
-    cfg = COMMITTEES[committee]
-    date_str = fmt_date(meeting_date)
-    time_str = f" at {fmt_time(meeting_time)}" if meeting_time else ""
-    loc_str  = f" — {location}" if location else ""
-    try:
-        supabase.table("bulletin_notices").insert({
-            "submitted_by": added_by,
-            "category": "Reminder",
-            "title": f"{cfg['emoji']} {committee} Committee — {meeting_type} Meeting",
-            "body": f"Scheduled for {date_str}{time_str}{loc_str}",
-            "notice_date": str(meeting_date),
-        }).execute()
-        return True
-    except Exception as e:
-        st.error(f"Bulletin error: {e}")
-        return False
-
-# ─── AI MINUTES ASSISTANT ─────────────────────────────────────────────────────
-def ai_structure_minutes(raw_text, committee, meeting_date, mode="transcript"):
-    """Use Claude API to structure raw text into DfE meeting minutes."""
-    cfg = COMMITTEES[committee]
-    date_str = fmt_date(meeting_date)
-
-    if mode == "transcript":
-        instruction = f"""You are helping structure a meeting transcript into formal DfE (Department for Education, South Australia) meeting minutes for the {committee} Committee at Cowandilla Learning Centre, held on {date_str}.
-
-Extract and format the following sections from the transcript. If a section isn't clearly present, note "Not recorded" or make a reasonable inference:
-
-1. **Attendance** — Who was present (list names/roles)
-2. **Apologies** — Who sent apologies
-3. **Confirmation of Previous Minutes** — Moved by / Seconded by / Carried
-4. **Business Arising** — Any action items from previous minutes discussed
-5. **Agenda Items** — For each item: Title, Discussion summary, Outcome/Resolution, Action required, Responsible person, Due date
-6. **Other Business** — Any other matters discussed
-7. **Next Meeting** — Date, time, location if mentioned
-8. **Close** — Time meeting closed
-
-Return your response as a JSON object with these exact keys:
-attendance, apologies, prev_minutes_confirmed, prev_minutes_mover, prev_minutes_seconder, business_arising, agenda_items (array of objects with: title, discussion, outcome, action, responsible, due_date), other_business, next_meeting_date, next_meeting_time, next_meeting_location, meeting_closed_at
-
-For agenda_items, return a JSON array.
-Return ONLY valid JSON, no markdown, no explanation."""
-    else:  # improve typed notes
-        instruction = f"""You are helping improve rough meeting notes into formal DfE (Department for Education, South Australia) meeting minutes for the {committee} Committee at Cowandilla Learning Centre, held on {date_str}.
-
-Take these rough notes and:
-1. Improve grammar, clarity and professionalism
-2. Structure into the formal DfE meeting format
-3. Ensure all resolutions are clearly stated
-4. Format action items with responsible person and due dates where mentioned
-
-Return your response as a JSON object with these exact keys:
-attendance, apologies, prev_minutes_confirmed, prev_minutes_mover, prev_minutes_seconder, business_arising, agenda_items (array of objects with: title, discussion, outcome, action, responsible, due_date), other_business, next_meeting_date, next_meeting_time, next_meeting_location, meeting_closed_at
-
-For agenda_items, return a JSON array.
-Return ONLY valid JSON, no markdown, no explanation."""
-
-    try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 4000,
-                "system": instruction,
-                "messages": [{"role": "user", "content": raw_text}]
-            },
-            timeout=60
-        )
-        result = response.json()
-        raw = result["content"][0]["text"]
-        # Strip any markdown fences
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        st.error(f"AI processing error: {e}")
-        return None
-
-# ─── LANDING PAGE ─────────────────────────────────────────────────────────────
-def landing_page():
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#1a2e44,#2d4a6e);color:white;
-                padding:1.5rem 2rem;border-radius:14px;margin-bottom:1.5rem;
-                box-shadow:0 4px 20px rgba(26,46,74,0.3);">
-      <div style="display:flex;align-items:center;gap:1.2rem;">
-        <div style="font-size:3rem;">🏛️</div>
-        <div>
-          <h1 style="margin:0;font-size:1.7rem;font-weight:800;">CLC Committees</h1>
-          <p style="margin:0.2rem 0 0;opacity:0.8;font-size:0.9rem;">
-            Cowandilla Learning Centre — Agendas · Minutes · Scheduling
-          </p>
-        </div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("**Select a committee to continue:**")
-    col1, col2 = st.columns(2)
-    cols = [col1, col2, col1, col2]
-    for i, (name, cfg) in enumerate(COMMITTEES.items()):
-        with cols[i]:
-            st.markdown(f"""
-            <div style="background:{cfg['bg']};border:2px solid {cfg['border']};
-                        border-radius:14px;padding:1.5rem 1.2rem;text-align:center;
-                        margin-bottom:0.5rem;">
-              <div style="font-size:2.5rem;">{cfg['emoji']}</div>
-              <div style="font-weight:700;color:{cfg['color']};font-size:1rem;margin-top:0.4rem;">{name}</div>
-              <div style="font-size:0.78rem;color:#555;margin-top:0.3rem;">{cfg['desc']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button(f"Enter {name}", key=f"enter_{name}", use_container_width=True, type="primary"):
-                st.session_state.selected_committee = name
-                st.rerun()
-
-# ─── AUTH GATE ────────────────────────────────────────────────────────────────
-def auth_gate(committee):
-    cfg = COMMITTEES[committee]
     st.markdown(f"""
-    <div style="background:{cfg['bg']};border:2px solid {cfg['border']};
-                border-radius:14px;padding:1.5rem;max-width:400px;margin:2rem auto;text-align:center;">
-      <div style="font-size:3rem;">{cfg['emoji']}</div>
-      <h2 style="color:{cfg['color']};margin:0.5rem 0 0.2rem;">{committee} Committee</h2>
-      <p style="color:#555;font-size:0.88rem;margin-bottom:1.2rem;">Enter the committee password to continue.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        pw = st.text_input("Password", type="password", key=f"pw_{committee}")
-        if st.button("🔓 Enter", type="primary", use_container_width=True):
-            if pw == get_pw(committee):
-                st.session_state.auth[committee] = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
-        if st.button("← Back to committees", use_container_width=True):
-            st.session_state.selected_committee = None
-            st.rerun()
-
-# ─── AGENDA TAB ───────────────────────────────────────────────────────────────
-def render_agenda_tab(committee):
-    cfg = COMMITTEES[committee]
-    items = db_agenda_items(committee)
-    pending = [i for i in items if i.get("status","pending") == "pending"]
-    discussed = [i for i in items if i.get("status","pending") != "pending"]
-
-    # Upcoming meeting context
-    upcoming = db_scheduled_meetings(committee)
-    if upcoming:
-        nm = upcoming[0]
-        nm_date = fmt_date(nm.get("meeting_date"))
-        st.markdown(f"""
-        <div class="next-meeting-box" style="background:{cfg['bg']};border-color:{cfg['border']};">
-          <span style="font-size:0.78rem;font-weight:700;color:{cfg['color']};text-transform:uppercase;
-                       letter-spacing:0.05em;">Next Scheduled Meeting</span>
-          <div style="font-size:1.1rem;font-weight:700;color:{cfg['color']};margin-top:0.2rem;">
-            📅 {nm_date}
-            {f"&nbsp;⏰ {fmt_time(nm.get('meeting_time'))}" if nm.get('meeting_time') else ""}
-            {f"&nbsp;📍 {nm.get('location')}" if nm.get('location') else ""}
+    <div style="background:{bg};border:2px solid {color};border-radius:14px;
+                padding:1.25rem 1.5rem;margin-bottom:1rem;
+                box-shadow:0 4px 20px rgba(0,0,0,0.12);">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+        <span style="font-size:1.8rem;">{cfg['emoji']}</span>
+        <div>
+          <div style="font-weight:800;color:{color};font-size:1.05rem;">
+            {ev.get('title','')}
+            {f'<span style="font-weight:600;font-size:0.85rem;"> · {ev.get("student_initials","")}</span>' if ev.get("student_initials") else ""}
+          </div>
+          <div style="font-size:0.8rem;margin-top:0.15rem;">
+            <span style="background:{color};color:white;font-size:0.7rem;font-weight:700;
+                         padding:0.15rem 0.5rem;border-radius:20px;">{ev.get('event_type','')}</span>
+            {f'<span style="background:{PROGRAM_COLORS.get(prog,{{}}).get("bg","#f3f4f6")};color:{PROGRAM_COLORS.get(prog,{{}}).get("color","#374151")};font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:20px;margin-left:0.3rem;">{prog}</span>' if prog else ""}
           </div>
         </div>
-        """, unsafe_allow_html=True)
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.85rem;color:#374151;">
+        <div>📅 <strong>Date:</strong> {edate}</div>
+        {f'<div>⏰ <strong>Time:</strong> {tr}</div>' if tr else '<div></div>'}
+        {f'<div>📍 <strong>Location:</strong> {ev.get("location","")}</div>' if ev.get("location") else '<div></div>'}
+        {f'<div>👤 <strong>Added by:</strong> {ev.get("added_by","")}</div>' if ev.get("added_by") else '<div></div>'}
+      </div>
+      {f'<div style="margin-top:0.6rem;font-size:0.85rem;color:#555;border-top:1px solid rgba(0,0,0,0.08);padding-top:0.5rem;">{ev.get("notes","")}</div>' if ev.get("notes") else ""}
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Add new agenda item
-    with st.expander("➕ Add Agenda Item", expanded=not pending):
-        with st.form("agenda_add", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                title = st.text_input("Item title *", placeholder="e.g. Review of Q1 Budget")
-                submitted_by = st.text_input("Submitted by *", placeholder="Your name")
-            with col2:
-                desc = st.text_area("Description / background", height=100,
-                                    placeholder="Provide any context or information relevant to this item...")
-                target_date = st.date_input("For meeting on (optional)",
-                                            value=upcoming[0].get("meeting_date") if upcoming else None,
-                                            key="agenda_target_date")
-            upload = st.file_uploader("📎 Attach pre-reading (PDF, Word, image — max 5MB)",
-                                       type=["pdf","docx","doc","png","jpg","xlsx"],
-                                       key="agenda_upload")
-            submitted = st.form_submit_button("➕ Add to Agenda", type="primary", use_container_width=True)
-            if submitted:
-                if not title.strip() or not submitted_by.strip():
-                    st.warning("Title and submitter name are required.")
-                else:
-                    fname, fdata = file_to_b64(upload)
-                    if fdata and len(fdata) > 7_000_000:
-                        st.error("File too large (max ~5MB). Please compress or use a smaller file.")
+    dc1, dc2, dc3 = st.columns([1,1,4])
+    with dc1:
+        if st.button("✖ Close", key="ev_detail_close", use_container_width=True):
+            st.session_state.selected_event_id = None
+            st.rerun()
+    with dc2:
+        can_edit = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not pac
+        if can_edit:
+            if st.button("✏️ Edit", key="ev_detail_edit", use_container_width=True, type="primary"):
+                st.session_state.edit_event_id  = eid
+                st.session_state.selected_event_id = None
+                edate_obj = datetime.strptime(str(ev.get("event_date",""))[:10], "%Y-%m-%d").date()
+                st.session_state.selected_date  = edate_obj
+                st.rerun()
+
+# ─── RENDER EVENT CARD ──────────────────────────────────────────────────────────
+def render_event_card(ev, key_prefix, allow_edit=True):
+    cfg  = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+    tr   = fmt_time(ev.get("start_time",""))
+    if ev.get("end_time"): tr += f" – {fmt_time(ev['end_time'])}"
+    eid  = ev.get("id",""); pac = str(eid).startswith("pac_")
+    prog = ev.get("program","")
+    init = ev.get("student_initials","")
+
+    # For student events, use program colour
+    if prog and ev.get("event_type") in STUDENT_EVENT_TYPES:
+        pc = PROGRAM_COLORS.get(prog, {})
+        cfg = {"color": pc.get("color", cfg["color"]), "bg": pc.get("bg", cfg["bg"]), "emoji": cfg["emoji"]}
+
+    prog_html = ""
+    if prog:
+        pc = PROGRAM_COLORS.get(prog,{})
+        prog_html = f'<span style="background:{pc.get("bg","#f3f4f6")};color:{pc.get("color","#374151")};font-size:0.68rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:10px;margin-right:4px;">{prog}</span>'
+    init_html = f'<span style="font-weight:700;"> {init}</span>' if init else ""
+
+    cc1, cc2, cc3 = st.columns([6,1,1])
+    with cc1:
+        st.markdown(
+            f'<div class="ev-card" style="background:{cfg["bg"]};border-left-color:{cfg["color"]};">'
+            f'<h4 style="color:{cfg["color"]};">{cfg["emoji"]} {ev.get("title","")}{init_html}</h4>'
+            f'<div class="meta">'
+            f'{prog_html}'
+            f'<span style="background:{cfg["color"]};color:white;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:10px;">{ev.get("event_type","")}</span>'
+            f'{(" ⏰ "+tr) if tr else ""}'
+            f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
+            f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
+            f'</div>'
+            f'{("<div style=\"font-size:0.78rem;color:#555;margin-top:0.25rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}'
+            f'</div>', unsafe_allow_html=True)
+    with cc2:
+        # All staff can edit student meeting dates; admin can edit everything
+        can_edit = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not pac
+        if can_edit and allow_edit:
+            st.write("")
+            if st.button("✏️", key=f"{key_prefix}_e_{eid}", help="Edit"):
+                st.session_state.edit_event_id = eid if st.session_state.edit_event_id!=eid else None
+                st.rerun()
+    with cc3:
+        if st.session_state.is_admin and not pac and allow_edit:
+            st.write("")
+            if st.button("🗑️", key=f"{key_prefix}_d_{eid}", help="Delete"):
+                del_event(eid); st.session_state.edit_event_id=None; st.rerun()
+
+    if st.session_state.edit_event_id == eid and not pac and allow_edit:
+        st.markdown("**✏️ Edit event:**")
+        ok, data = event_form(f"{key_prefix}_ef_{eid}", existing=ev, label="💾 Save Changes")
+        if ok:
+            upd_event(eid, data); st.session_state.edit_event_id=None
+            st.success("Updated!"); st.rerun()
+
+# ─── HEADER ─────────────────────────────────────────────────────────────────────
+hc1, hc2 = st.columns([4, 1])
+with hc1:
+    st.markdown("""
+    <div class="cal-header">
+      <div style="font-size:2.5rem">📅</div>
+      <div>
+        <h1>CLC Communal Calendar</h1>
+        <p>Cowandilla Learning Centre — click any day to view or add events</p>
+      </div>
+    </div>""", unsafe_allow_html=True)
+with hc2:
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    if not st.session_state.is_admin:
+        with st.expander("🔐 Admin"):
+            pw = st.text_input("", type="password", key="admin_pw", placeholder="Admin password")
+            if st.button("Sign In", type="primary", use_container_width=True):
+                if pw == st.secrets.get("CAL_ADMIN_PASSWORD","CLC2026"):
+                    st.session_state.is_admin = True; st.rerun()
+                else: st.error("Incorrect password")
+    else:
+        st.success("🔓 Admin active")
+        if st.button("Sign Out", use_container_width=True):
+            st.session_state.is_admin = False; st.rerun()
+
+# ─── TODAY STRIP ────────────────────────────────────────────────────────────────
+t_evs = db_events(today, today) + pac_events(db_pac(), today, today)
+t_evs.sort(key=lambda x: str(x.get("start_time","")))
+chips = []
+for ev in t_evs:
+    cfg = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+    prog = ev.get("program","")
+    if prog and ev.get("event_type") in STUDENT_EVENT_TYPES:
+        pc = PROGRAM_COLORS.get(prog,{})
+        cfg = {"color": pc.get("color",cfg["color"]), "bg": pc.get("bg",cfg["bg"]), "emoji": cfg["emoji"]}
+    t   = fmt_time(ev.get("start_time",""))
+    init = ev.get("student_initials","")
+    label = ev.get("title","") + (f" ({init})" if init else "")
+    chips.append(f'<span style="background:{cfg["bg"]};color:{cfg["color"]};border-radius:6px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:500;">{cfg["emoji"]} {label}{("  "+t) if t else ""}</span>')
+ev_strip = " &nbsp;".join(chips) if chips else '<span style="color:#999;font-size:0.82rem;">No events scheduled today</span>'
+st.markdown(f'<div class="today-strip"><div class="ts-date">📍 Today — {today.strftime("%A %-d %B %Y")}</div><div style="display:flex;flex-wrap:wrap;gap:0.4rem;">{ev_strip}</div></div>', unsafe_allow_html=True)
+
+# ─── TABS ───────────────────────────────────────────────────────────────────────
+tab_month, tab_week, tab_list, tab_students = st.tabs(["🗓️ Month", "📋 Week", "📃 Agenda", "👨‍🎓 Students"])
+
+# ═══════════════ MONTH VIEW ════════════════════════════════════════════════════
+with tab_month:
+    cp, ct, cn, ctod = st.columns([1,3,1,1])
+    with cp:
+        if st.button("◀ Prev", use_container_width=True, key="m_prev"):
+            if st.session_state.cal_month == 1: st.session_state.cal_month=12; st.session_state.cal_year-=1
+            else: st.session_state.cal_month-=1
+            st.rerun()
+    with ct:
+        mn = datetime(st.session_state.cal_year, st.session_state.cal_month, 1)
+        st.markdown(f"<h3 style='text-align:center;margin:0;color:#1a2e4a;'>{mn.strftime('%B %Y')}</h3>", unsafe_allow_html=True)
+    with cn:
+        if st.button("Next ▶", use_container_width=True, key="m_next"):
+            if st.session_state.cal_month == 12: st.session_state.cal_month=1; st.session_state.cal_year+=1
+            else: st.session_state.cal_month+=1
+            st.rerun()
+    with ctod:
+        if st.button("Today", use_container_width=True, key="m_today"):
+            st.session_state.cal_year=today.year; st.session_state.cal_month=today.month
+            select_day(today); st.rerun()
+
+    yr, mo = st.session_state.cal_year, st.session_state.cal_month
+    fd = date(yr, mo, 1)
+    ld = date(yr, mo, calendar.monthrange(yr, mo)[1])
+    evs  = db_events(fd-timedelta(days=7), ld+timedelta(days=7))
+    evs += pac_events(db_pac(), fd-timedelta(days=7), ld+timedelta(days=7))
+    idx  = ev_index(evs)
+    ts   = str(today)
+    ss   = str(st.session_state.selected_date)
+
+    # ── Interactive month grid (button-based so dates are clickable) ──
+    # Header row
+    day_headers = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    hcols = st.columns(7)
+    for i, dn in enumerate(day_headers):
+        with hcols[i]:
+            st.markdown(f"<div style='text-align:center;font-weight:700;font-size:0.78rem;"
+                        f"color:#1a2e4a;padding:0.3rem 0;border-bottom:2px solid #e5e7eb;"
+                        f"margin-bottom:0.3rem;'>{dn}</div>", unsafe_allow_html=True)
+
+    for week in calendar.monthcalendar(yr, mo):
+        wcols = st.columns(7)
+        for i, day in enumerate(week):
+            with wcols[i]:
+                if day == 0:
+                    st.markdown("<div style='min-height:70px;'>&nbsp;</div>", unsafe_allow_html=True)
+                    continue
+                d = date(yr, mo, day); ds = str(d)
+                is_today = ds == ts; is_sel = ds == ss
+                day_evs  = idx.get(ds, [])
+
+                # Day cell styling
+                border = "3px solid #d4af37" if is_today else ("3px solid #1a2e4a" if is_sel else "1px solid #e5e7eb")
+                bg      = "#fffef5" if is_today else ("#e8edf3" if is_sel else "white")
+                num_col = "#d4af37" if is_today else ("#1a2e4a" if is_sel else "#374151")
+                badge   = f"<span style='background:#d4af37;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:800;'>{day}</span>" if is_today else f"<span style='color:{num_col};font-weight:700;font-size:0.82rem;'>{day}</span>"
+
+                # Event chips inside cell
+                chips_html = ""
+                for ev in day_evs[:2]:
+                    etype = ev.get("event_type","Other")
+                    prog  = ev.get("program","")
+                    if prog and etype in STUDENT_EVENT_TYPES:
+                        pc = PROGRAM_COLORS.get(prog,{}); cbg=pc.get("bg","#f3f4f6"); ccol=pc.get("color","#374151")
+                        emoji = EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
                     else:
-                        db_add_agenda_item({
-                            "committee": committee,
-                            "title": title.strip(),
-                            "description": desc.strip(),
-                            "submitted_by": submitted_by.strip(),
-                            "target_meeting_date": str(target_date) if target_date else None,
-                            "attachment_name": fname,
-                            "attachment_data": fdata,
-                            "status": "pending",
-                        })
-                        st.success(f"✅ '{title}' added to agenda!")
-                        st.rerun()
+                        cfg=EVENT_TYPES.get(etype,EVENT_TYPES["Other"]); cbg=cfg["bg"]; ccol=cfg["color"]; emoji=cfg["emoji"]
+                    lbl = ev.get("student_initials","") or ev.get("title","")
+                    lbl = lbl[:10]+"…" if len(lbl)>10 else lbl
+                    chips_html += f"<div style='background:{cbg};color:{ccol};border-radius:4px;padding:0.1rem 0.3rem;font-size:0.62rem;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{emoji} {lbl}</div>"
+                extra = len(day_evs) - 2
+                if extra > 0:
+                    chips_html += f"<div style='font-size:0.6rem;color:#888;'>+{extra} more</div>"
+
+                st.markdown(
+                    f"<div style='border:{border};border-radius:8px;background:{bg};"
+                    f"padding:0.35rem;min-height:72px;cursor:pointer;'>"
+                    f"<div style='margin-bottom:3px;'>{badge}</div>{chips_html}</div>",
+                    unsafe_allow_html=True
+                )
+                # Invisible button covering the cell for click detection
+                btn_label = "+" if not day_evs else f"{'●' * min(len(day_evs),3)}"
+                if st.button(f"{day}", key=f"mday_{yr}_{mo}_{day}", use_container_width=True,
+                             help=f"Click to {'view events on' if day_evs else 'add event on'} {d.strftime('%-d %B')}"):
+                    select_day(d)
+                    st.session_state.cal_year  = yr
+                    st.session_state.cal_month = mo
+                    st.session_state.quick_add_open = not day_evs  # auto-open add form if no events
+                    st.session_state.selected_event_id = None
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Jump to any date
+    jumped = st.date_input("Jump to date:", value=st.session_state.selected_date, key="m_jump", label_visibility="collapsed")
+    if jumped != st.session_state.selected_date:
+        select_day(jumped); st.session_state.cal_year=jumped.year; st.session_state.cal_month=jumped.month; st.rerun()
 
     st.markdown("---")
 
-    # Pending items
-    if not pending:
-        st.markdown('<div class="info-box">📭 No pending agenda items — add one above.</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f"**{len(pending)} item{'s' if len(pending)!=1 else ''} pending for next meeting:**")
-        for item in pending:
-            with st.container():
-                c1, c2, c3 = st.columns([8,1,1])
-                with c1:
-                    attach_html = ""
-                    if item.get("attachment_name") and item.get("attachment_data"):
-                        attach_html = f'<br>{b64_download_link(item["attachment_name"], item["attachment_data"], "📎")}'
-                    st.markdown(f"""
-                    <div class="agenda-item" style="border-left-color:{cfg['color']};">
-                      <div style="font-weight:700;color:{cfg['color']};font-size:0.95rem;">{item['title']}</div>
-                      {f'<div style="font-size:0.83rem;color:#444;margin-top:0.3rem;">{item["description"]}</div>' if item.get("description") else ""}
-                      <div style="font-size:0.75rem;color:#888;margin-top:0.4rem;">
-                        👤 {item.get('submitted_by','—')}
-                        {f" · 📅 For {fmt_date(item.get('target_meeting_date'))}" if item.get('target_meeting_date') else ""}
-                        {attach_html}
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c2:
-                    if st.session_state.is_admin or True:  # any authed user
-                        st.write("")
-                        status = st.selectbox("", ["pending","discussed","carried","noted","deferred"],
-                                              index=0, key=f"status_{item['id']}",
-                                              label_visibility="collapsed")
-                        if status != "pending":
-                            if st.button("✔ Set", key=f"setstatus_{item['id']}", use_container_width=True):
-                                db_update_agenda_status(item["id"], status)
-                                st.rerun()
-                with c3:
-                    if st.session_state.is_admin:
-                        st.write("")
-                        st.write("")
-                        if st.button("🗑️", key=f"del_ag_{item['id']}", help="Delete item"):
-                            db_delete_agenda_item(item["id"])
-                            st.rerun()
+    # ── Event detail panel (shows when event chip clicked) ──
+    event_detail_panel()
 
-    # Discussed / archived items
-    if discussed:
-        with st.expander(f"📂 Archive — {len(discussed)} resolved item{'s' if len(discussed)!=1 else ''}"):
-            STATUS_COLORS = {
-                "discussed": ("#d97706","#fef3c7"),
-                "carried":   ("#065f46","#d1fae5"),
-                "noted":     ("#1d4ed8","#dbeafe"),
-                "deferred":  ("#6b7280","#f3f4f6"),
-            }
-            for item in discussed:
-                s = item.get("status","discussed")
-                sc, sb = STATUS_COLORS.get(s,("#374151","#f3f4f6"))
-                st.markdown(f"""
-                <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;
-                            padding:0.6rem 0.9rem;margin-bottom:0.4rem;display:flex;
-                            align-items:center;gap:0.75rem;">
-                  <span style="background:{sb};color:{sc};font-size:0.7rem;font-weight:700;
-                               padding:0.15rem 0.5rem;border-radius:20px;">{s.upper()}</span>
-                  <span style="font-weight:600;color:#1a2e44;">{item['title']}</span>
-                  <span style="font-size:0.75rem;color:#888;margin-left:auto;">
-                    {item.get('submitted_by','—')}
-                  </span>
-                </div>
-                """, unsafe_allow_html=True)
+    # ── Day panel ──
+    sel = st.session_state.selected_date
+    d_evs = db_events(sel, sel) + pac_events(db_pac(), sel, sel)
+    d_evs.sort(key=lambda x: str(x.get("start_time","")))
+    st.markdown(f"### {'📍 ' if sel==today else ''}📅 {sel.strftime('%A %-d %B %Y')}")
 
-# ─── MINUTES TAB ──────────────────────────────────────────────────────────────
-def render_minutes_tab(committee):
-    cfg = COMMITTEES[committee]
-    all_minutes = db_minutes(committee)
-
-    sub_tab_list, sub_tab_new, sub_tab_ai = st.tabs(["📋 Minutes Archive", "📝 Record New Minutes", "🤖 AI Minutes Assistant"])
-
-    # ── Archive ──
-    with sub_tab_list:
-        if not all_minutes:
-            st.markdown('<div class="info-box">No minutes recorded yet. Use the "Record New Minutes" tab to add your first set.</div>', unsafe_allow_html=True)
+    if not d_evs:
+        st.markdown('<div class="add-prompt">📭 No events on this day — click ➕ below to add one</div>', unsafe_allow_html=True)
+    for ev in d_evs:
+        # Make event title clickable to open detail panel
+        cfg_ev = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+        prog   = ev.get("program","")
+        if prog and ev.get("event_type") in STUDENT_EVENT_TYPES:
+            pc = PROGRAM_COLORS.get(prog,{}); ecol = pc.get("color", cfg_ev["color"])
         else:
-            for m in all_minutes:
-                mid = m.get("id","")
-                mdate = fmt_date(m.get("meeting_date"))
-                mtype = m.get("meeting_type","Ordinary")
-                chair = m.get("chair","")
-                taker = m.get("minutes_taker","")
-
-                c1, c2, c3 = st.columns([7,1,1])
-                with c1:
-                    st.markdown(f"""
-                    <div class="minutes-card" style="border-left-color:{cfg['color']};">
-                      <div style="font-weight:700;color:{cfg['color']};font-size:0.95rem;">
-                        {cfg['emoji']} {committee} — {mtype} Meeting
-                      </div>
-                      <div style="font-size:0.82rem;color:#555;margin-top:0.25rem;">
-                        📅 {mdate}
-                        {f" · 👤 Chair: {chair}" if chair else ""}
-                        {f" · 📝 Minutes: {taker}" if taker else ""}
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c2:
-                    st.write("")
-                    if st.button("📄 View", key=f"view_m_{mid}", use_container_width=True):
-                        st.session_state.edit_minutes_id = mid if st.session_state.edit_minutes_id != mid else None
-                        st.rerun()
-                with c3:
-                    if st.session_state.is_admin:
-                        st.write("")
-                        if st.button("🗑️", key=f"del_m_{mid}", help="Delete"):
-                            db_delete_minutes(mid)
-                            st.rerun()
-
-                # View/edit expanded
-                if st.session_state.edit_minutes_id == mid:
-                    full = db_get_minutes(mid)
-                    if full:
-                        render_minutes_view(full, committee, cfg)
-
-    # ── New Minutes ──
-    with sub_tab_new:
-        render_new_minutes_form(committee, cfg)
-
-    # ── AI Assistant ──
-    with sub_tab_ai:
-        render_ai_assistant(committee, cfg)
-
-def render_minutes_view(m, committee, cfg):
-    """Render a full set of minutes for viewing."""
-    mdate = fmt_date(m.get("meeting_date"))
-    st.markdown(f"""
-    <div style="background:{cfg['bg']};border-radius:12px;padding:1.25rem 1.5rem;margin:0.5rem 0 1rem;">
-      <h3 style="color:{cfg['color']};margin:0 0 0.2rem;">
-        {cfg['emoji']} {committee} Committee — {m.get('meeting_type','Ordinary')} Meeting
-      </h3>
-      <div style="font-size:0.85rem;color:#555;">
-        📅 {mdate}
-        {f" &nbsp;📍 {m.get('location')}" if m.get('location') else ""}
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Chair:** {m.get('chair','—')}")
-        st.markdown(f"**Minutes Taker:** {m.get('minutes_taker','—')}")
-        present = m.get("members_present") or []
-        if isinstance(present, str):
-            try: present = json.loads(present)
-            except: present = [present]
-        st.markdown(f"**Present:** {', '.join(present) if present else '—'}")
-    with col2:
-        apologies = m.get("apologies") or []
-        if isinstance(apologies, str):
-            try: apologies = json.loads(apologies)
-            except: apologies = [apologies]
-        st.markdown(f"**Apologies:** {', '.join(apologies) if apologies else 'None'}")
-        prev = "Yes" if m.get("previous_minutes_confirmed") else "Not recorded"
-        mover = m.get("previous_minutes_mover","")
-        seconder = m.get("previous_minutes_seconder","")
-        conf_str = prev
-        if mover: conf_str += f" — Moved: {mover}"
-        if seconder: conf_str += f" / Seconded: {seconder}"
-        st.markdown(f"**Prev Minutes Confirmed:** {conf_str}")
-
-    if m.get("business_arising","").strip():
-        st.markdown("**Business Arising:**")
-        st.markdown(f"> {m['business_arising']}")
-
-    st.markdown("**Agenda Items:**")
-    agenda_items = m.get("agenda_items") or []
-    if isinstance(agenda_items, str):
-        try: agenda_items = json.loads(agenda_items)
-        except: agenda_items = []
-    for i, item in enumerate(agenda_items, 1):
-        if isinstance(item, str):
-            try: item = json.loads(item)
-            except: item = {"title": item}
-        st.markdown(f"""
-        <div class="dfe-section">
-          <h4>{i}. {item.get('title','Agenda Item')}</h4>
-          {f'<p style="font-size:0.85rem;margin:0 0 0.3rem;"><strong>Discussion:</strong> {item.get("discussion","")}</p>' if item.get("discussion") else ""}
-          {f'<p style="font-size:0.85rem;margin:0 0 0.3rem;"><strong>Outcome:</strong> {item.get("outcome","")}</p>' if item.get("outcome") else ""}
-          {f'<p style="font-size:0.85rem;margin:0;color:#b91c1c;"><strong>Action:</strong> {item.get("action","")} — {item.get("responsible","")} by {item.get("due_date","")}</p>' if item.get("action") else ""}
-        </div>
-        """, unsafe_allow_html=True)
-
-    if m.get("other_business","").strip():
-        st.markdown("**Other Business:**")
-        st.markdown(f"> {m['other_business']}")
-
-    if m.get("next_meeting_date"):
-        st.markdown(f"**Next Meeting:** {fmt_date(m['next_meeting_date'])}"
-                   + (f" at {fmt_time(m.get('next_meeting_time'))}" if m.get("next_meeting_time") else "")
-                   + (f" — {m.get('next_meeting_location','')}" if m.get("next_meeting_location") else ""))
-
-    if m.get("meeting_closed_at"):
-        st.markdown(f"**Meeting Closed:** {m['meeting_closed_at']}")
-
-    # Attachments
-    attachments = m.get("attachments") or []
-    if isinstance(attachments, str):
-        try: attachments = json.loads(attachments)
-        except: attachments = []
-    if attachments:
-        st.markdown("**Attachments:**")
-        for att in attachments:
-            if att.get("name") and att.get("data"):
-                st.markdown(b64_download_link(att["name"], att["data"]), unsafe_allow_html=True)
-
-def render_new_minutes_form(committee, cfg):
-    """Full DfE-structured minutes form."""
-    st.markdown(f"""
-    <div class="info-box">
-      📋 Use this form to record meeting minutes in the DfE standard structure.
-      All sections follow SA Government Department for Education requirements.
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Pre-fill from AI result if available
-    ai = st.session_state.get("ai_result") or {}
-
-    with st.form("new_minutes_form", clear_on_submit=False):
-        st.markdown("### 📋 Meeting Details")
-        r1c1, r1c2, r1c3 = st.columns(3)
-        with r1c1:
-            meeting_date = st.date_input("Meeting date *", value=today)
-            meeting_type = st.selectbox("Meeting type", ["Ordinary","Special","Extraordinary","Annual"])
-        with r1c2:
-            chair = st.text_input("Chair *", value=ai.get("chair",""), placeholder="Name of chairperson")
-            minutes_taker = st.text_input("Minutes taker *", value=ai.get("minutes_taker",""), placeholder="Name")
-        with r1c3:
-            location = st.text_input("Location", placeholder="e.g. Staff Room")
-            opened_at = st.text_input("Meeting opened at", placeholder="e.g. 3:30 PM")
-
-        st.markdown("---")
-        st.markdown("### 1. Attendance & Apologies")
-        r2c1, r2c2 = st.columns(2)
-        with r2c1:
-            default_present = ", ".join(ai.get("attendance") or []) if isinstance(ai.get("attendance"), list) else (ai.get("attendance","") or "")
-            members_present_raw = st.text_area("Members present (one per line)",
-                                                value=default_present,
-                                                height=100, placeholder="John Smith\nJane Doe")
-        with r2c2:
-            default_apologies = ", ".join(ai.get("apologies") or []) if isinstance(ai.get("apologies"), list) else (ai.get("apologies","") or "")
-            apologies_raw = st.text_area("Apologies (one per line)",
-                                          value=default_apologies,
-                                          height=100, placeholder="Sarah Jones")
-
-        st.markdown("---")
-        st.markdown("### 2. Confirmation of Previous Minutes")
-        r3c1, r3c2, r3c3 = st.columns(3)
-        with r3c1:
-            prev_confirmed = st.checkbox("Previous minutes confirmed",
-                                          value=bool(ai.get("prev_minutes_confirmed", False)))
-        with r3c2:
-            prev_mover = st.text_input("Moved by", value=ai.get("prev_minutes_mover",""))
-        with r3c3:
-            prev_seconder = st.text_input("Seconded by", value=ai.get("prev_minutes_seconder",""))
-
-        st.markdown("---")
-        st.markdown("### 3. Business Arising from Previous Minutes")
-        business_arising = st.text_area("Business arising",
-                                         value=ai.get("business_arising",""),
-                                         height=80,
-                                         placeholder="Any action items or business from the previous meeting...")
-
-        st.markdown("---")
-        st.markdown("### 4. Agenda Items")
-        st.markdown('<div class="info-box">Add each agenda item separately. Include discussion notes, outcomes, and any action items.</div>', unsafe_allow_html=True)
-
-        # Pre-fill from agenda items in database
-        pending_agenda = db_agenda_items(committee)
-        pending_agenda = [i for i in pending_agenda if i.get("status","pending") == "pending"]
-        ai_items = ai.get("agenda_items") or []
-
-        # Determine number of items to show
-        n_items = max(len(pending_agenda), len(ai_items), 3)
-        if "n_agenda_items" not in st.session_state:
-            st.session_state.n_agenda_items = n_items
-
-        agenda_items_data = []
-        for idx in range(st.session_state.n_agenda_items):
-            st.markdown(f"**Item {idx+1}**")
-            ai_item = ai_items[idx] if idx < len(ai_items) else {}
-            db_item = pending_agenda[idx] if idx < len(pending_agenda) else {}
-            default_title = ai_item.get("title","") or db_item.get("title","")
-            default_desc  = ai_item.get("discussion","") or db_item.get("description","")
-
-            ic1, ic2 = st.columns([2,3])
-            with ic1:
-                item_title = st.text_input(f"Item title", value=default_title, key=f"ai_title_{idx}")
-                item_outcome = st.text_input(f"Outcome / Resolution", value=ai_item.get("outcome",""), key=f"ai_outcome_{idx}")
-            with ic2:
-                item_discussion = st.text_area(f"Discussion notes", value=default_desc, height=80, key=f"ai_disc_{idx}")
-                ia1, ia2, ia3 = st.columns(3)
-                with ia1:
-                    item_action = st.text_input("Action required", value=ai_item.get("action",""), key=f"ai_action_{idx}")
-                with ia2:
-                    item_responsible = st.text_input("Responsible", value=ai_item.get("responsible",""), key=f"ai_resp_{idx}")
-                with ia3:
-                    item_due = st.text_input("Due date", value=ai_item.get("due_date",""), key=f"ai_due_{idx}", placeholder="e.g. Term 2 Week 4")
-            if item_title.strip():
-                agenda_items_data.append({
-                    "title": item_title.strip(),
-                    "discussion": item_discussion.strip(),
-                    "outcome": item_outcome.strip(),
-                    "action": item_action.strip(),
-                    "responsible": item_responsible.strip(),
-                    "due_date": item_due.strip(),
-                })
-            st.markdown("<hr style='margin:0.4rem 0;border-color:#f0f0f0;'>", unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("### 5. Other Business")
-        other_business = st.text_area("Other business",
-                                       value=ai.get("other_business",""),
-                                       height=80, placeholder="Any other matters raised...")
-
-        st.markdown("---")
-        st.markdown("### 6. Next Meeting & Close")
-        r5c1, r5c2, r5c3, r5c4 = st.columns(4)
-        with r5c1:
-            nm_date_raw = ai.get("next_meeting_date","")
-            try:
-                nm_date_val = datetime.strptime(str(nm_date_raw)[:10],"%Y-%m-%d").date() if nm_date_raw else None
-            except:
-                nm_date_val = None
-            next_meeting_date = st.date_input("Next meeting date", value=nm_date_val, key="nm_date_form")
-        with r5c2:
-            next_meeting_time = st.text_input("Next meeting time", value=ai.get("next_meeting_time",""), placeholder="e.g. 3:30 PM")
-        with r5c3:
-            next_meeting_location = st.text_input("Next meeting location", value=ai.get("next_meeting_location",""), placeholder="e.g. Staff Room")
-        with r5c4:
-            meeting_closed_at = st.text_input("Meeting closed at", placeholder="e.g. 4:15 PM")
-
-        st.markdown("### 📎 Attachments")
-        attachments_upload = st.file_uploader(
-            "Attach files (PDFs, images, documents — max 5MB each)",
-            accept_multiple_files=True,
-            type=["pdf","docx","doc","png","jpg","xlsx","pptx"],
-            key="minutes_attachments"
-        )
-
-        # Options
-        r6c1, r6c2 = st.columns(2)
-        with r6c1:
-            add_to_calendar = st.checkbox("📅 Add next meeting to Communal Calendar", value=True)
-        with r6c2:
-            add_to_bulletin = st.checkbox("📋 Add next meeting to Daily Bulletin", value=True)
-        creator_name = st.text_input("Recorded by *", placeholder="Your name")
-
-        submitted = st.form_submit_button("💾 Save Minutes", type="primary", use_container_width=True)
-
-        if submitted:
-            if not chair.strip() or not creator_name.strip():
-                st.warning("Chair and 'Recorded by' are required.")
-            else:
-                # Process attachments
-                attachments_data = []
-                for f in (attachments_upload or []):
-                    fname, fdata = file_to_b64(f)
-                    if fdata and len(fdata) < 7_000_000:
-                        attachments_data.append({"name": fname, "data": fdata})
-                    else:
-                        st.warning(f"⚠ '{fname}' too large — skipped.")
-
-                present_list = [x.strip() for x in members_present_raw.split("\n") if x.strip()]
-                apologies_list = [x.strip() for x in apologies_raw.split("\n") if x.strip()]
-
-                row = {
-                    "committee": committee,
-                    "meeting_date": str(meeting_date),
-                    "meeting_type": meeting_type,
-                    "location": location.strip(),
-                    "chair": chair.strip(),
-                    "minutes_taker": minutes_taker.strip(),
-                    "members_present": json.dumps(present_list),
-                    "apologies": json.dumps(apologies_list),
-                    "previous_minutes_confirmed": prev_confirmed,
-                    "previous_minutes_mover": prev_mover.strip(),
-                    "previous_minutes_seconder": prev_seconder.strip(),
-                    "business_arising": business_arising.strip(),
-                    "agenda_items": json.dumps(agenda_items_data),
-                    "other_business": other_business.strip(),
-                    "next_meeting_date": str(next_meeting_date) if next_meeting_date else None,
-                    "next_meeting_time": next_meeting_time.strip(),
-                    "next_meeting_location": next_meeting_location.strip(),
-                    "meeting_closed_at": meeting_closed_at.strip(),
-                    "attachments": json.dumps(attachments_data),
-                    "created_by": creator_name.strip(),
-                    "raw_transcript": "",
-                }
-                db_save_minutes(row)
-
-                # Mark pending agenda items as discussed
-                for item in pending_agenda:
-                    if any(ai.get("title","").strip().lower() == item.get("title","").strip().lower()
-                           for ai in agenda_items_data):
-                        db_update_agenda_status(item["id"], "discussed")
-
-                # Calendar & Bulletin for next meeting
-                if next_meeting_date:
-                    if add_to_calendar:
-                        post_to_calendar(committee, next_meeting_date, next_meeting_time,
-                                         next_meeting_location, meeting_type, creator_name)
-                    if add_to_bulletin:
-                        post_to_bulletin(committee, next_meeting_date, next_meeting_time,
-                                         next_meeting_location, meeting_type, creator_name)
-
-                st.session_state.ai_result = None
-                st.session_state.n_agenda_items = 3
-                st.success("✅ Minutes saved!")
-                if next_meeting_date and (add_to_calendar or add_to_bulletin):
-                    parts = []
-                    if add_to_calendar: parts.append("Communal Calendar")
-                    if add_to_bulletin: parts.append("Daily Bulletin")
-                    st.info(f"📅 Next meeting ({fmt_date(next_meeting_date)}) added to: {' & '.join(parts)}")
+            ecol = cfg_ev["color"]
+        tr_ev = fmt_time(ev.get("start_time",""))
+        if ev.get("end_time"): tr_ev += f" – {fmt_time(ev['end_time'])}"
+        ev_cols = st.columns([7, 1, 1, 1])
+        with ev_cols[0]:
+            st.markdown(
+                f'<div class="ev-card" style="background:{EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])["bg"]};border-left-color:{ecol};">'
+                f'<h4 style="color:{ecol};margin:0 0 0.2rem;">{cfg_ev["emoji"]} {ev.get("title","")}'
+                f'{(" · "+ev.get("student_initials","")) if ev.get("student_initials") else ""}</h4>'
+                f'<div class="meta">'
+                f'{(" ⏰ "+tr_ev) if tr_ev else ""}'
+                f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
+                f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
+                f'</div></div>', unsafe_allow_html=True)
+        with ev_cols[1]:
+            st.write("")
+            if st.button("🔍", key=f"mdet_{ev.get('id')}", help="View details"):
+                st.session_state.selected_event_id = ev.get("id") if st.session_state.selected_event_id != ev.get("id") else None
                 st.rerun()
+        with ev_cols[2]:
+            can_edit = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not str(ev.get("id","")).startswith("pac_")
+            if can_edit:
+                st.write("")
+                if st.button("✏️", key=f"med_{ev.get('id')}", help="Edit"):
+                    st.session_state.edit_event_id = ev.get("id") if st.session_state.edit_event_id != ev.get("id") else None
+                    st.rerun()
+        with ev_cols[3]:
+            if st.session_state.is_admin and not str(ev.get("id","")).startswith("pac_"):
+                st.write("")
+                if st.button("🗑️", key=f"mdel_{ev.get('id')}", help="Delete"):
+                    del_event(ev.get("id")); st.rerun()
 
-def render_ai_assistant(committee, cfg):
-    """AI transcript/notes → structured minutes."""
-    st.markdown(f"""
-    <div class="ai-box">
-      <h4>🤖 AI Minutes Assistant</h4>
-      <p style="font-size:0.85rem;color:#0c4a6e;margin:0;">
-        Paste a meeting transcript or rough notes below and the AI will structure them
-        into the DfE meeting format. You can review and edit before saving.
-      </p>
-    </div>
-    """, unsafe_allow_html=True)
+        if st.session_state.edit_event_id == ev.get("id") and not str(ev.get("id","")).startswith("pac_"):
+            st.markdown("**✏️ Edit event:**")
+            ok, data = event_form(f"mef_{ev.get('id')}", existing=ev, label="💾 Save Changes")
+            if ok:
+                upd_event(ev.get("id"), data); st.session_state.edit_event_id=None
+                st.success("Updated!"); st.rerun()
 
-    mode = st.radio("Mode", ["📹 Structure from transcript", "✏️ Improve typed notes"],
-                    horizontal=True, key="ai_mode")
-    mode_key = "transcript" if "transcript" in mode else "improve"
-
-    col1, col2 = st.columns([3,1])
-    with col1:
-        meeting_date_ai = st.date_input("Meeting date", value=today, key="ai_meeting_date")
-    with col2:
-        pass
-
-    raw_text = st.text_area(
-        "Paste transcript or rough notes here:",
-        height=250,
-        placeholder="e.g.\n\nMeeting opened at 3:30pm by Sarah.\nPresent: Sarah Jones, Tom Smith, Julie Brown.\nApologies from Candice.\n\nPrevious minutes moved by Tom, seconded by Julie. Carried.\n\nItem 1 - Budget Review...",
-        key="ai_raw_text"
-    )
-
-    if st.button("🤖 Process with AI", type="primary", disabled=not raw_text.strip()):
-        with st.spinner("AI is structuring your minutes... ⏳"):
-            result = ai_structure_minutes(raw_text, committee, meeting_date_ai, mode_key)
-            if result:
-                st.session_state.ai_result = result
-                st.session_state.n_agenda_items = max(len(result.get("agenda_items") or []), 3)
-                st.success("✅ Done! Switch to the 'Record New Minutes' tab to review and save.")
-                st.rerun()
-
-    if st.session_state.get("ai_result"):
-        st.markdown("---")
-        st.markdown("**✅ AI result ready** — switch to the 📝 Record New Minutes tab to review and save it.")
-        ai = st.session_state.ai_result
-        with st.expander("👀 Preview AI output"):
-            present = ai.get("attendance") or []
-            if isinstance(present, str): present = [present]
-            apologies = ai.get("apologies") or []
-            if isinstance(apologies, str): apologies = [apologies]
-            st.markdown(f"**Present:** {', '.join(present) if present else '—'}")
-            st.markdown(f"**Apologies:** {', '.join(apologies) if apologies else '—'}")
-            items = ai.get("agenda_items") or []
-            if items:
-                st.markdown(f"**{len(items)} agenda item(s) found:**")
-                for i, item in enumerate(items,1):
-                    if isinstance(item, dict):
-                        st.markdown(f"- {i}. **{item.get('title','?')}** — {item.get('outcome','')}")
-        if st.button("🗑 Clear AI result", key="clear_ai"):
-            st.session_state.ai_result = None
-            st.session_state.n_agenda_items = 3
+    st.markdown("")
+    add_label = f"➕ Add event on {sel.strftime('%-d %B')}"
+    with st.expander(add_label, expanded=st.session_state.quick_add_open):
+        st.session_state.quick_add_open = False
+        ok, data = event_form(f"madd_{str(sel)}", default_date=sel)
+        if ok:
+            save_event(data)
+            st.success(f"✅ '{data['title']}' added!")
+            st.session_state.pending_bulletin = data
             st.rerun()
 
-# ─── SCHEDULE TAB ─────────────────────────────────────────────────────────────
-def render_schedule_tab(committee):
-    cfg = COMMITTEES[committee]
-    upcoming = db_scheduled_meetings(committee)
-    all_sched = db_all_scheduled(committee)
-    past = [s for s in all_sched if str(s.get("meeting_date","")) < str(today)]
-    members = db_get_members(committee)
+# ═══════════════ WEEK VIEW ═════════════════════════════════════════════════════
+with tab_week:
+    ws = st.session_state.cal_week_start
+    we = ws + timedelta(days=6)
+    wp, wt, wn, wtod = st.columns([1,3,1,1])
+    with wp:
+        if st.button("◀ Prev", use_container_width=True, key="w_prev"):
+            st.session_state.cal_week_start -= timedelta(weeks=1); st.rerun()
+    with wt:
+        st.markdown(f"<h3 style='text-align:center;margin:0;color:#1a2e4a;'>{fmt_date(ws)} – {fmt_date(we)}</h3>", unsafe_allow_html=True)
+    with wn:
+        if st.button("Next ▶", use_container_width=True, key="w_next"):
+            st.session_state.cal_week_start += timedelta(weeks=1); st.rerun()
+    with wtod:
+        if st.button("Today", use_container_width=True, key="w_today"):
+            st.session_state.cal_week_start = today-timedelta(days=today.weekday()); select_day(today); st.rerun()
 
-    tab_sched, tab_members = st.tabs(["📅 Meetings", "👥 Members & Emails"])
+    wevs  = db_events(ws, we) + pac_events(db_pac(), ws, we)
+    widx  = ev_index(wevs)
+    ts    = str(today)
+    ss    = str(st.session_state.selected_date)
+    dnames= ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
-    # ══════════════ MEETINGS ══════════════
-    with tab_sched:
-        # Next meeting display
-        if upcoming:
-            nm = upcoming[0]
-            invite_tags = ""
-            if nm.get("invites_sent"):
-                invite_tags = f'&nbsp;·&nbsp;<span style="color:#7c3aed;">✉️ Invites sent</span>'
-            st.markdown(f"""
-            <div style="background:{cfg['bg']};border:2px solid {cfg['border']};
-                        border-radius:14px;padding:1.5rem;margin-bottom:1.25rem;">
-              <div style="font-size:0.75rem;font-weight:700;color:{cfg['color']};
-                          text-transform:uppercase;letter-spacing:0.06em;">Next Scheduled Meeting</div>
-              <div style="font-size:1.5rem;font-weight:800;color:{cfg['color']};margin-top:0.3rem;">
-                📅 {fmt_date(nm.get('meeting_date'))}
-              </div>
-              <div style="font-size:0.88rem;color:#555;margin-top:0.25rem;">
-                {f"⏰ {nm.get('meeting_time')}" if nm.get('meeting_time') else ""}
-                {f" &nbsp;📍 {nm.get('location')}" if nm.get('location') else ""}
-                {f" &nbsp;📋 {nm.get('meeting_type','Ordinary')}" if nm.get('meeting_type') else ""}
-              </div>
-              <div style="margin-top:0.5rem;font-size:0.78rem;color:#888;">
-                {"✅ Added to calendar" if nm.get("added_to_calendar") else ""}
-                {"&nbsp;·&nbsp;" if nm.get("added_to_calendar") and nm.get("added_to_bulletin") else ""}
-                {"📋 Added to bulletin" if nm.get("added_to_bulletin") else ""}
-                {invite_tags}
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+    wcols = st.columns(7)
+    for i, wc in enumerate(wcols):
+        d    = ws + timedelta(days=i); ds = str(d)
+        itod = ds==ts; isel = ds==ss
+        top  = "#d4af37" if itod else ("#1a2e4a" if isel else "#e0e0e0")
+        bg   = "#fffef5" if itod else "white"
+        with wc:
+            st.markdown(f'<div class="week-col" style="border-top:3px solid {top};background:{bg};"><div class="week-day-label">{dnames[i]}</div><div class="week-day-num" style="color:{"#d4af37" if itod else "#1a2e4a"};">{d.day}</div>', unsafe_allow_html=True)
+            for ev in widx.get(ds,[]):
+                etype = ev.get("event_type","Other")
+                prog  = ev.get("program","")
+                if prog and etype in STUDENT_EVENT_TYPES:
+                    pc  = PROGRAM_COLORS.get(prog,{})
+                    cbg = pc.get("bg","#f3f4f6"); ccol = pc.get("color","#374151")
+                    emoji = EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
+                else:
+                    cfg   = EVENT_TYPES.get(etype, EVENT_TYPES["Other"])
+                    cbg   = cfg["bg"]; ccol = cfg["color"]; emoji = cfg["emoji"]
+                t     = fmt_time(ev.get("start_time",""))
+                init  = ev.get("student_initials","")
+                title = (init if init else ev.get("title",""))
+                short = title[:11]+"…" if len(title)>11 else title
+                is_selected_ev = st.session_state.selected_event_id == ev.get("id")
+                border_style = f"2px solid {ccol}" if is_selected_ev else f"3px solid {ccol}"
+                st.markdown(
+                    f'<div style="background:{cbg};border-left:{border_style};border-radius:5px;'
+                    f'padding:0.25rem 0.4rem;margin-bottom:0.2rem;font-size:0.72rem;cursor:pointer;">'
+                    f'<span style="font-weight:600;color:{ccol};">{emoji} {short}</span>'
+                    f'{("<br><span style=\"color:#666;\">"+ t +"</span>") if t else ""}</div>',
+                    unsafe_allow_html=True)
+                if st.button("🔍", key=f"wdet_{ev.get('id')}", help=f"Details: {title}", use_container_width=True):
+                    st.session_state.selected_event_id = ev.get("id") if st.session_state.selected_event_id != ev.get("id") else None
+                    select_day(d)
+                    st.rerun()
+            if not widx.get(ds,[]):
+                st.markdown("<div style='color:#ccc;font-size:0.75rem;text-align:center;padding:0.5rem 0;'>—</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            btnlbl = "✅ Selected" if isel else "📝 Add/View"
+            if st.button(btnlbl, key=f"wsel_{i}", use_container_width=True, type="primary" if isel else "secondary"):
+                select_day(d); st.rerun()
 
-            if len(upcoming) > 1:
-                with st.expander(f"📅 {len(upcoming)-1} more upcoming meeting(s)"):
-                    for m in upcoming[1:]:
-                        st.markdown(f"- **{fmt_date(m.get('meeting_date'))}**"
-                                   + (f" at {m.get('meeting_time')}" if m.get('meeting_time') else "")
-                                   + (f" — {m.get('location')}" if m.get('location') else ""))
-        else:
-            st.markdown("""
-            <div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;
-                        padding:1.5rem;text-align:center;margin-bottom:1.25rem;color:#64748b;">
-              📅 No upcoming meetings scheduled — add one below.
-            </div>
-            """, unsafe_allow_html=True)
+    st.markdown("---")
+    event_detail_panel()
+    sel = st.session_state.selected_date
+    d_evs = db_events(sel, sel) + pac_events(db_pac(), sel, sel)
+    d_evs.sort(key=lambda x: str(x.get("start_time","")))
+    st.markdown(f"### {'📍 ' if sel==today else ''}📅 {sel.strftime('%A %-d %B %Y')}")
 
-        # Schedule new meeting
-        with st.expander("➕ Schedule a New Meeting", expanded=not upcoming):
-            if not members:
-                st.markdown("""
-                <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;
-                            padding:0.6rem 0.9rem;font-size:0.84rem;color:#92400e;margin-bottom:0.75rem;">
-                  💡 Add committee members in the <strong>Members & Emails</strong> tab to send invites when scheduling.
-                </div>
-                """, unsafe_allow_html=True)
+    if not d_evs:
+        st.markdown('<div class="add-prompt">📭 No events on this day — use the form below to add one</div>', unsafe_allow_html=True)
+    for ev in d_evs:
+        render_event_card(ev, "w")
 
-            with st.form("schedule_meeting", clear_on_submit=True):
-                sc1, sc2 = st.columns(2)
-                with sc1:
-                    s_date = st.date_input("Meeting date *", value=today + timedelta(weeks=4))
-                    s_type = st.selectbox("Meeting type", ["Ordinary","Special","Extraordinary","Annual"])
-                    s_time = st.text_input("Time", placeholder="e.g. 3:30 PM")
-                with sc2:
-                    s_loc  = st.text_input("Location", placeholder="e.g. Staff Room")
-                    s_by   = st.text_input("Scheduled by *", placeholder="Your name")
-                    s_email = st.text_input("Your email (for invite sender)", placeholder="you@schools.sa.edu.au")
+    with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
+        ok, data = event_form(f"wadd_{str(sel)}", default_date=sel)
+        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
 
-                # Integration options
-                st.markdown("**Add to:**")
-                ic1, ic2, ic3 = st.columns(3)
-                with ic1: add_cal = st.checkbox("📅 Communal Calendar", value=True)
-                with ic2: add_bul = st.checkbox("📋 Daily Bulletin", value=True)
-                with ic3: send_invites = st.checkbox("✉️ Email Invites", value=bool(members))
+# ═══════════════ AGENDA VIEW ══════════════════════════════════════════════════
+with tab_list:
+    lc1, lc2, lc3 = st.columns(3)
+    with lc1: ls = st.date_input("From", value=today, key="ls")
+    with lc2: le = st.date_input("To",   value=today+timedelta(weeks=8), key="le")
+    with lc3: tf = st.multiselect("Filter type", list(EVENT_TYPES.keys()), default=list(EVENT_TYPES.keys()), key="tf")
 
-                # Member selection for invites
-                if members and send_invites:
-                    st.markdown("**Select recipients:**")
-                    member_checks = {}
-                    mcols = st.columns(min(len(members), 3))
-                    for i, m in enumerate(members):
-                        with mcols[i % len(mcols)]:
-                            member_checks[m["id"]] = st.checkbox(
-                                f"{m['name']} ({m['email']})",
-                                value=True,
-                                key=f"invite_{m['id']}"
-                            )
+    with st.expander("➕ Add New Event"):
+        ok, data = event_form("ladd")
+        if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
 
-                # Agenda preview for invite
-                pending_items = db_agenda_items(committee)
-                pending_items = [i for i in pending_items if i.get("status","pending") == "pending"]
-                include_agenda = False
-                if pending_items:
-                    include_agenda = st.checkbox(
-                        f"📋 Include {len(pending_items)} pending agenda item(s) in invite",
-                        value=True
-                    )
+    st.markdown("---")
+    levs  = db_events(ls, le) + pac_events(db_pac(), ls, le)
+    levs  = [e for e in levs if e.get("event_type") in tf]
+    levs.sort(key=lambda x: (str(x.get("event_date","")), str(x.get("start_time",""))))
 
-                if st.form_submit_button("📅 Schedule Meeting", type="primary", use_container_width=True):
-                    if not s_by.strip():
+    if not levs:
+        st.markdown('<div class="info-box">No events in this date range.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f"**{len(levs)} event{'s' if len(levs)!=1 else ''} found**")
+        cur_d = None
+        for ev in levs:
+            eds = str(ev.get("event_date",""))[:10]
+            if eds != cur_d:
+                cur_d = eds
+                try:
+                    do = datetime.strptime(eds,"%Y-%m-%d").date()
+                    lbl = f"📍 **TODAY — {do.strftime('%A %-d %B %Y')}**" if do==today else f"**{do.strftime('%A %-d %B %Y')}**"
+                    st.markdown(lbl)
+                except: st.markdown(f"**{eds}**")
+            render_event_card(ev, "l")
+
+# ═══════════════ STUDENTS VIEW ════════════════════════════════════════════════
+with tab_students:
+    st.markdown("### 👨‍🎓 Student Placements & Meetings")
+    st.markdown("""
+    <div style="background:#f8faff;border:1px solid #c7d7f0;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.84rem;color:#374151;">
+    Student names are stored as <strong>initials only</strong> for privacy. &nbsp;
+    Colour coding:&nbsp;
+    <span style="background:#dbeafe;color:#1d4ed8;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">JP</span> Junior Primary &nbsp;
+    <span style="background:#dcfce7;color:#15803d;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">PY</span> Primary Years &nbsp;
+    <span style="background:#fef9c3;color:#a16207;font-weight:700;padding:0.15rem 0.5rem;border-radius:8px;">SY</span> Senior Years &nbsp;
+    &nbsp;|&nbsp; ✏️ <strong>All staff</strong> can edit student dates.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Sub-tabs ──
+    st_gantt, st_meetings, st_transition = st.tabs(["📊 Placement Timeline", "📋 Meetings List", "🔀 Transition Schedule"])
+
+    # ════════ PLACEMENT TIMELINE (GANTT STRIP) ════════
+    with st_gantt:
+
+        g1, g2, g3 = st.columns(3)
+        with g1: g_from = st.date_input("From", value=today - timedelta(days=today.weekday()), key="g_from")
+        with g2: g_to   = st.date_input("To",   value=today + timedelta(weeks=8), key="g_to")
+        with g3: g_prog = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="g_prog")
+
+        # Add student placement form
+        with st.expander("➕ Add Student Placement"):
+            with st.form("sg_add_form", clear_on_submit=True):
+                sa1, sa2 = st.columns(2)
+                with sa1:
+                    s_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                    s_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
+                    s_who      = st.text_input("Added by *", placeholder="Your name")
+                with sa2:
+                    s_start = st.date_input("Start date *", value=today, key="sg_start")
+                    s_end   = st.date_input("End date *",   value=today + timedelta(weeks=10), key="sg_end")
+                    s_notes = st.text_area("Notes (optional)", height=96)
+                s_ok = st.form_submit_button("✅ Add Placement", type="primary", use_container_width=True)
+                if s_ok:
+                    if not s_initials.strip():
+                        st.warning("Please enter student initials.")
+                    elif not s_program:
+                        st.warning("Please select a program.")
+                    elif not s_who.strip():
                         st.warning("Please enter your name.")
                     else:
-                        cal_ok = bul_ok = False
-                        if add_cal:
-                            cal_ok = post_to_calendar(committee, s_date, s_time, s_loc, s_type, s_by)
-                        if add_bul:
-                            bul_ok = post_to_bulletin(committee, s_date, s_time, s_loc, s_type, s_by)
-
-                        # Send email invites
-                        invite_count = 0
-                        invite_errors = []
-                        if send_invites and members:
-                            selected = [m for m in members if member_checks.get(m["id"], False)]
-                            if selected:
-                                agenda_to_send = pending_items if include_agenda else None
-                                with st.spinner(f"Sending invites to {len(selected)} recipient(s)..."):
-                                    invite_count, invite_errors = send_meeting_invites(
-                                        committee, s_date, s_time, s_loc, s_type,
-                                        s_by, selected, agenda_to_send
-                                    )
-
-                        db_save_scheduled({
-                            "committee": committee,
-                            "meeting_date": str(s_date),
-                            "meeting_time": s_time.strip(),
-                            "location": s_loc.strip(),
-                            "meeting_type": s_type,
-                            "added_to_calendar": cal_ok,
-                            "added_to_bulletin": bul_ok,
-                            "invites_sent": invite_count,
-                            "created_by": s_by.strip(),
-                        })
-
-                        st.success(f"✅ Meeting scheduled for {fmt_date(s_date)}!")
-                        parts = []
-                        if add_cal: parts.append("📅 Calendar")
-                        if add_bul: parts.append("📋 Bulletin")
-                        if invite_count: parts.append(f"✉️ {invite_count} invite(s) sent")
-                        if parts: st.info(" · ".join(parts))
-                        if invite_errors:
-                            st.warning(f"⚠️ Failed to send to: {', '.join(invite_errors)}")
+                        supabase.table("clc_events").insert({
+                            "title": f"Student Placement — {s_initials.strip()}",
+                            "event_type": "Student Placement",
+                            "event_date": str(s_start),
+                            "end_date": str(s_end) if s_end != s_start else None,
+                            "start_time": None, "end_time": None,
+                            "location": "", "added_by": s_who.strip(),
+                            "notes": s_notes.strip(),
+                            "program": s_program,
+                            "student_initials": s_initials.strip(),
+                        }).execute()
+                        st.success(f"✅ Placement added for {s_initials.strip()}!")
                         st.rerun()
 
-        # Past meetings
-        if past:
-            with st.expander(f"📂 Past meetings ({len(past)})"):
-                for m in past:
-                    c1, c2 = st.columns([8,1])
-                    with c1:
-                        st.markdown(f"**{fmt_date(m.get('meeting_date'))}** — {m.get('meeting_type','Ordinary')}"
-                                   + (f" at {m.get('meeting_time')}" if m.get('meeting_time') else "")
-                                   + (f" · {m.get('location')}" if m.get('location') else "")
-                                   + (f" · ✉️ {m.get('invites_sent',0)} invites" if m.get('invites_sent') else ""))
-                    with c2:
-                        if st.session_state.is_admin:
-                            if st.button("🗑️", key=f"del_sched_{m['id']}"):
-                                db_delete_scheduled(m["id"])
-                                st.rerun()
+        st.markdown("---")
 
-    # ══════════════ MEMBERS & EMAILS ══════════════
-    with tab_members:
-        cfg = COMMITTEES[committee]
-        all_staff   = db_get_all_staff()
-        membership  = db_get_committee_membership(committee)
-        members     = db_get_members(committee)
+        # Fetch all placements and meetings in range
+        g_range_start = g_from - timedelta(days=30)  # fetch wider to catch placements that started earlier
+        g_range_end   = g_to   + timedelta(days=30)
+        all_g_evs = db_events(g_range_start, g_range_end)
 
-        st.markdown(f"""
-        <div style="background:{cfg['bg']};border:1px solid {cfg['border']};border-radius:10px;
-                    padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;color:{cfg['color']};">
-          Tick staff members below to add them to this committee.
-          When scheduling a meeting you can select exactly who receives an invite —
-          they'll get a branded email with an <strong>.ics calendar attachment</strong>.
+        placements = [e for e in all_g_evs
+                      if e.get("event_type") == "Student Placement"
+                      and e.get("program","") in g_prog]
+        meetings   = [e for e in all_g_evs
+                      if e.get("event_type") in STUDENT_MEETING_TYPES]
+
+        if not placements:
+            st.markdown('<div class="info-box">No student placements found. Add one above.</div>', unsafe_allow_html=True)
+        else:
+            # Build list of days to show as columns (Mon–Fri only, within range)
+            days = []
+            d = g_from
+            while d <= g_to:
+                if d.weekday() < 5:  # Mon–Fri only
+                    days.append(d)
+                d += timedelta(days=1)
+
+            if len(days) > 60:
+                st.warning("Date range is very wide — showing up to 60 school days. Narrow the range for best results.")
+                days = days[:60]
+
+            # Build meeting lookup by student_initials and date
+            meeting_lookup = {}  # (initials, date_str) -> list of meeting types
+            for m in meetings:
+                init = m.get("student_initials","")
+                mdate = str(m.get("event_date",""))[:10]
+                if init:
+                    key = (init, mdate)
+                    meeting_lookup.setdefault(key, []).append(m.get("event_type",""))
+
+            # Meeting dot colours
+            MEETING_DOTS = {
+                "Entry Meeting":      {"dot": "#0e7490", "label": "E"},
+                "Review Meeting":     {"dot": "#c2410c", "label": "R"},
+                "Transition Meeting": {"dot": "#7c3aed", "label": "T"},
+                "TAC Meeting":        {"dot": "#b45309", "label": "TAC"},
+            }
+
+            # Group placements by program for display
+            prog_order = ["JP", "PY", "SY"]
+            placements.sort(key=lambda x: (prog_order.index(x.get("program","JP")) if x.get("program") in prog_order else 3,
+                                           str(x.get("event_date",""))))
+
+            # Build Gantt HTML table
+            # Header row: dates
+            # Limit column header to show day number only, month on change
+            CELL_W = max(22, min(36, 1100 // max(len(days),1)))
+
+            html = f"""
+<style>
+.gantt-wrap {{overflow-x:auto;}}
+.gantt-table {{border-collapse:collapse;font-family:'Inter',sans-serif;font-size:0.72rem;}}
+.gantt-table th {{background:#1a2e4a;color:white;padding:3px 4px;text-align:center;min-width:{CELL_W}px;white-space:nowrap;border:1px solid #2d4a6e;}}
+.gantt-table td {{border:1px solid #e5e7eb;padding:2px;text-align:center;height:30px;min-width:{CELL_W}px;background:white;}}
+.gantt-table .row-label {{text-align:left;padding:4px 10px;font-weight:700;white-space:nowrap;min-width:90px;background:#f8fafc;border:1px solid #e5e7eb;position:sticky;left:0;z-index:2;}}
+.gantt-table .prog-head {{text-align:left;padding:5px 10px;font-size:0.75rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;border:1px solid #e5e7eb;}}
+.gantt-bar {{border-radius:4px;height:22px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:white;position:relative;}}
+.gantt-dot {{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;color:white;font-size:0.6rem;font-weight:800;margin:1px;}}
+.gantt-today {{background:#fffbeb!important;border-left:2px solid #d4af37!important;border-right:2px solid #d4af37!important;}}
+.gantt-weekend {{background:#f9fafb!important;}}
+</style>
+<div class="gantt-wrap">
+<table class="gantt-table">
+<tr>
+  <th class="row-label" style="position:sticky;left:0;z-index:3;">Student</th>
+"""
+            # Date headers
+            prev_month = None
+            for d in days:
+                is_today = d == today
+                month_lbl = d.strftime("%b") if d.month != prev_month else ""
+                prev_month = d.month
+                bg = "#d4af37" if is_today else "#1a2e4a"
+                html += f'<th style="background:{bg};">{month_lbl}<br>{d.day}<br><span style="font-weight:400;opacity:0.7;">{d.strftime("%a")[0]}</span></th>'
+            html += "</tr>"
+
+            cur_prog = None
+            for pl in placements:
+                prog = pl.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                init = pl.get("student_initials","") or pl.get("title","?")
+
+                # Program group header row
+                if prog != cur_prog:
+                    cur_prog = prog
+                    prog_bg  = pc["bg"]; prog_col = pc["color"]
+                    html += f'<tr><td class="prog-head" colspan="{len(days)+1}" style="background:{prog_bg};color:{prog_col};">{prog} — {PROGRAM_COLORS.get(prog,{}).get("label","")}</td></tr>'
+
+                pl_start = datetime.strptime(str(pl.get("event_date",""))[:10], "%Y-%m-%d").date()
+                pl_end_raw = pl.get("end_date") or pl.get("event_date")
+                pl_end   = datetime.strptime(str(pl_end_raw)[:10], "%Y-%m-%d").date()
+
+                html += f'<tr><td class="row-label"><span style="color:{pc["color"]};font-weight:700;">{init}</span><br><span style="font-size:0.65rem;color:#888;">{pl_start.strftime("%-d %b")} – {pl_end.strftime("%-d %b")}</span></td>'
+
+                for d in days:
+                    is_today_col = d == today
+                    in_placement = pl_start <= d <= pl_end
+                    ds = str(d)
+                    mtypes = meeting_lookup.get((init, ds), [])
+
+                    td_cls = "gantt-today" if is_today_col else ""
+
+                    if in_placement:
+                        if mtypes:
+                            # Show meeting dots on placement bar
+                            dots_html = ""
+                            for mt in mtypes:
+                                dot_cfg = MEETING_DOTS.get(mt, {"dot":"#374151","label":"?"})
+                                dots_html += f'<span class="gantt-dot" style="background:{dot_cfg["dot"]};" title="{mt}">{dot_cfg["label"]}</span>'
+                            html += f'<td class="{td_cls}" style="background:{pc["bg"]}"><div class="gantt-bar" style="background:{pc["color"]};">{dots_html}</div></td>'
+                        else:
+                            # Solid placement bar
+                            html += f'<td class="{td_cls}" style="background:{pc["bg"]};"><div class="gantt-bar" style="background:{pc["color"]};opacity:0.85;">·</div></td>'
+                    else:
+                        # Outside placement — show meeting dots even if not placed (edge case)
+                        if mtypes:
+                            dots_html = "".join([f'<span class="gantt-dot" style="background:{MEETING_DOTS.get(mt,{}).get("dot","#374151")};" title="{mt}">{MEETING_DOTS.get(mt,{}).get("label","?")}</span>' for mt in mtypes])
+                            html += f'<td class="{td_cls}">{dots_html}</td>'
+                        else:
+                            html += f'<td class="{td_cls}"></td>'
+                html += "</tr>"
+
+            html += "</table></div>"
+
+            # Legend
+            html += """
+<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;font-size:0.75rem;align-items:center;">
+<strong>Meeting markers:</strong>
+<span style="background:#0e7490;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">E</span> Entry &nbsp;
+<span style="background:#c2410c;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">R</span> Review &nbsp;
+<span style="background:#7c3aed;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;">T</span> Transition &nbsp;
+<span style="background:#b45309;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65rem;font-size:0.55rem;">TAC</span> TAC
+</div>"""
+
+            st.markdown(html, unsafe_allow_html=True)
+
+            # Edit placements
+            st.markdown("---")
+            st.markdown("**✏️ Edit a placement:**")
+            for pl in placements:
+                eid  = pl.get("id","")
+                init = pl.get("student_initials","")
+                prog = pl.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                pl_start = str(pl.get("event_date",""))[:10]
+                pl_end   = str(pl.get("end_date") or pl.get("event_date",""))[:10]
+
+                ec1, ec2 = st.columns([6,1])
+                with ec1:
+                    st.markdown(f'<div style="background:{pc["bg"]};border-left:4px solid {pc["color"]};border-radius:8px;padding:0.5rem 0.8rem;margin-bottom:4px;"><span style="background:{pc["color"]};color:white;font-size:0.7rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:8px;">{prog}</span> <strong>{init}</strong> <span style="color:#888;font-size:0.78rem;">{pl_start} → {pl_end}</span></div>', unsafe_allow_html=True)
+                with ec2:
+                    if st.button("✏️", key=f"sg_e_{eid}"):
+                        st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
+                        st.rerun()
+
+                if st.session_state.edit_event_id == eid:
+                    with st.form(f"sg_ef_{eid}", clear_on_submit=False):
+                        ea1, ea2 = st.columns(2)
+                        with ea1:
+                            e_initials = st.text_input("Student initials *", value=pl.get("student_initials",""))
+                            prog_opts  = ["", "JP", "PY", "SY"]
+                            e_program  = st.selectbox("Program *", prog_opts,
+                                                      index=prog_opts.index(pl.get("program","")) if pl.get("program","") in prog_opts else 0)
+                            e_who = st.text_input("Added by *", value=pl.get("added_by",""))
+                        with ea2:
+                            e_start = st.date_input("Start date *",
+                                                    value=datetime.strptime(str(pl.get("event_date",today))[:10],"%Y-%m-%d").date(),
+                                                    key=f"sge_s_{eid}")
+                            e_end_raw = pl.get("end_date") or pl.get("event_date", today)
+                            e_end = st.date_input("End date *",
+                                                  value=datetime.strptime(str(e_end_raw)[:10],"%Y-%m-%d").date(),
+                                                  key=f"sge_e_{eid}")
+                            e_notes = st.text_area("Notes", value=pl.get("notes",""), height=80)
+                        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                            supabase.table("clc_events").update({
+                                "title": f"Student Placement — {e_initials.strip()}",
+                                "event_type": "Student Placement",
+                                "event_date": str(e_start),
+                                "end_date": str(e_end) if e_end != e_start else None,
+                                "start_time": None, "end_time": None,
+                                "location": "", "added_by": e_who.strip(),
+                                "notes": e_notes.strip(),
+                                "program": e_program,
+                                "student_initials": e_initials.strip(),
+                            }).eq("id", eid).execute()
+                            st.session_state.edit_event_id = None
+                            st.success("Updated!"); st.rerun()
+                    if st.session_state.is_admin:
+                        if st.button("🗑️ Delete this placement", key=f"sg_del_{eid}", type="secondary"):
+                            del_event(eid); st.rerun()
+
+    # ════════ MEETINGS LIST ════════
+    with st_meetings:
+        ml1, ml2, ml3 = st.columns(3)
+        with ml1: m_from = st.date_input("From", value=today, key="m_from")
+        with ml2: m_to   = st.date_input("To",   value=today+timedelta(weeks=12), key="m_to")
+        with ml3: m_prog = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="m_prog_f")
+
+        m_types = st.multiselect("Meeting type", STUDENT_MEETING_TYPES, default=STUDENT_MEETING_TYPES, key="m_type_f")
+
+        # Add student meeting
+        with st.expander("➕ Add Student Meeting"):
+            with st.form("sm_add_form", clear_on_submit=True):
+                sma1, sma2 = st.columns(2)
+                with sma1:
+                    sm_type     = st.selectbox("Meeting type *", STUDENT_MEETING_TYPES)
+                    sm_initials = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                    sm_program  = st.selectbox("Program *", ["", "JP", "PY", "SY"])
+                    sm_who      = st.text_input("Added by *", placeholder="Your name")
+                with sma2:
+                    sm_date  = st.date_input("Meeting date *", value=today, key="sm_date")
+                    sm_time  = st.time_input("Time (optional)", value=None)
+                    sm_loc   = st.text_input("Location (optional)")
+                    sm_notes = st.text_area("Notes (optional)", height=80)
+                sm_ok = st.form_submit_button("✅ Add Meeting", type="primary", use_container_width=True)
+                if sm_ok:
+                    if not sm_initials.strip():
+                        st.warning("Please enter student initials.")
+                    elif not sm_program:
+                        st.warning("Please select a program.")
+                    elif not sm_who.strip():
+                        st.warning("Please enter your name.")
+                    else:
+                        supabase.table("clc_events").insert({
+                            "title": f"{sm_type} — {sm_initials.strip()}",
+                            "event_type": sm_type,
+                            "event_date": str(sm_date),
+                            "end_date": None,
+                            "start_time": str(sm_time) if sm_time else None,
+                            "end_time": None,
+                            "location": sm_loc.strip(),
+                            "added_by": sm_who.strip(),
+                            "notes": sm_notes.strip(),
+                            "program": sm_program,
+                            "student_initials": sm_initials.strip(),
+                        }).execute()
+                        st.success(f"✅ {sm_type} added for {sm_initials.strip()}!")
+                        st.rerun()
+
+        st.markdown("---")
+
+        m_evs = db_events(m_from, m_to)
+        m_evs = [e for e in m_evs
+                 if e.get("event_type") in m_types
+                 and e.get("program","") in m_prog]
+        m_evs.sort(key=lambda x: (str(x.get("event_date","")), str(x.get("start_time",""))))
+
+        if not m_evs:
+            st.markdown('<div class="info-box">No student meetings found in this date range. Add one above.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f"**{len(m_evs)} meeting{'s' if len(m_evs)!=1 else ''} found**")
+            cur_d = None
+            for ev in m_evs:
+                eds = str(ev.get("event_date",""))[:10]
+                if eds != cur_d:
+                    cur_d = eds
+                    try:
+                        do  = datetime.strptime(eds,"%Y-%m-%d").date()
+                        lbl = f"📍 **TODAY — {do.strftime('%A %-d %B %Y')}**" if do==today else f"**{do.strftime('%A %-d %B %Y')}**"
+                        st.markdown(lbl)
+                    except: st.markdown(f"**{eds}**")
+
+                prog = ev.get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                cfg  = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+                tr   = fmt_time(ev.get("start_time",""))
+                eid  = ev.get("id","")
+                init = ev.get("student_initials","")
+
+                mc1, mc2, mc3 = st.columns([6,1,1])
+                with mc1:
+                    st.markdown(
+                        f'<div class="student-card" style="background:{pc["bg"]};border-left-color:{cfg["color"]};">'
+                        f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">'
+                        f'<span style="background:{pc["color"]};color:white;font-size:0.7rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:8px;">{prog}</span>'
+                        f'<span style="background:{cfg["color"]};color:white;font-size:0.7rem;padding:0.1rem 0.45rem;border-radius:8px;">{cfg["emoji"]} {ev.get("event_type","")}</span>'
+                        f'<strong style="color:#1a2e4a;">{init}</strong>'
+                        f'</div>'
+                        f'<div style="font-size:0.78rem;color:#555;">'
+                        f'{(" ⏰ "+tr) if tr else ""}'
+                        f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
+                        f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
+                        f'</div>'
+                        f'{("<div style=\"font-size:0.78rem;color:#666;margin-top:0.2rem;\">"+ev.get("notes","")+"</div>") if ev.get("notes") else ""}'
+                        f'</div>', unsafe_allow_html=True)
+                with mc2:
+                    st.write("")
+                    if st.button("✏️", key=f"sm_e_{eid}"):
+                        st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
+                        st.rerun()
+                with mc3:
+                    if st.session_state.is_admin:
+                        st.write("")
+                        if st.button("🗑️", key=f"sm_d_{eid}"):
+                            del_event(eid); st.rerun()
+
+                if st.session_state.edit_event_id == eid:
+                    st.markdown("**✏️ Edit meeting:**")
+                    with st.form(f"sm_ef_{eid}", clear_on_submit=False):
+                        ef1, ef2 = st.columns(2)
+                        with ef1:
+                            etype_opts = STUDENT_MEETING_TYPES
+                            e_mtype    = st.selectbox("Meeting type *", etype_opts,
+                                                      index=etype_opts.index(ev.get("event_type")) if ev.get("event_type") in etype_opts else 0)
+                            e_init     = st.text_input("Student initials *", value=ev.get("student_initials",""))
+                            prog_opts  = ["", "JP", "PY", "SY"]
+                            e_prog     = st.selectbox("Program *", prog_opts,
+                                                      index=prog_opts.index(ev.get("program","")) if ev.get("program","") in prog_opts else 0)
+                            e_who_m    = st.text_input("Added by *", value=ev.get("added_by",""))
+                        with ef2:
+                            e_mdate = st.date_input("Date *",
+                                                    value=datetime.strptime(str(ev.get("event_date",today))[:10],"%Y-%m-%d").date(),
+                                                    key=f"sme_d_{eid}")
+                            e_mtime = st.time_input("Time (optional)", value=None, key=f"sme_t_{eid}")
+                            e_mloc  = st.text_input("Location", value=ev.get("location",""))
+                            e_mnotes= st.text_area("Notes", value=ev.get("notes",""), height=80)
+                        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                            supabase.table("clc_events").update({
+                                "title": f"{e_mtype} — {e_init.strip()}",
+                                "event_type": e_mtype,
+                                "event_date": str(e_mdate),
+                                "end_date": None,
+                                "start_time": str(e_mtime) if e_mtime else None,
+                                "end_time": None,
+                                "location": e_mloc.strip(),
+                                "added_by": e_who_m.strip(),
+                                "notes": e_mnotes.strip(),
+                                "program": e_prog,
+                                "student_initials": e_init.strip(),
+                            }).eq("id", eid).execute()
+                            st.session_state.edit_event_id = None
+                            st.success("Updated!"); st.rerun()
+
+
+    # ════════ TRANSITION SCHEDULE ════════
+    with st_transition:
+        st.markdown("### 🔀 Student Transition Schedules")
+        st.markdown("""
+        <div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.84rem;color:#374151;">
+        Record the days and times a student attends their mainstream school during transition.
+        Each row is one week — enter the times they are <strong>at mainstream</strong> each day.
+        Leave a day blank if they are at CLC all day that day.
         </div>
         """, unsafe_allow_html=True)
 
-        if not all_staff:
-            st.markdown('<div class="info-box">No staff found in the system. Staff are managed in the main behaviour app.</div>', unsafe_allow_html=True)
-        else:
-            ROLE_COLORS = {
-                "Chair":        ("#1a2e44","#e8edf3"),
-                "Deputy Chair": ("#1d4ed8","#dbeafe"),
-                "Secretary":    ("#065f46","#d1fae5"),
-                "Member":       ("#374151","#f3f4f6"),
-                "Observer":     ("#6b7280","#f9fafb"),
-            }
-            ROLES = ["Member","Chair","Deputy Chair","Secretary","Observer"]
+        # ── Helpers for transition table ──
+        DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        DAY_KEYS = ["mon", "tue", "wed", "thu", "fri"]
 
-            # List all staff alphabetically (staff_list has no program column)
-            for s in all_staff:
-                sid    = s["id"]
-                sname  = s["name"]
-                semail = s.get("email", "")
-                is_member = sid in membership
-                cur_role  = membership.get(sid, "Member")
-                rc, rb = ROLE_COLORS.get(cur_role, ROLE_COLORS["Member"])
+        def db_transitions(initials=None):
+            try:
+                q = supabase.table("student_transitions").select("*").order("week_start_date").order("student_initials")
+                if initials:
+                    q = q.eq("student_initials", initials)
+                return q.execute().data or []
+            except Exception as e:
+                st.error(f"Could not load transition data. Have you run the SQL migration? ({e})")
+                return []
 
-                col_check, col_info, col_role, col_save = st.columns([0.5, 4, 2, 1])
-                with col_check:
-                    ticked = st.checkbox("", value=is_member,
-                                         key=f"mem_tick_{committee}_{sid}",
-                                         label_visibility="collapsed")
-                with col_info:
-                    badge = f'<span style="background:{rb};color:{rc};font-size:0.68rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:20px;">{cur_role}</span> ' if is_member else ""
-                    st.markdown(
-                        f'<div style="padding:0.35rem 0;font-size:0.88rem;">'
-                        f'{badge}<strong>{sname}</strong>'
-                        f'<span style="color:#888;font-size:0.78rem;margin-left:0.5rem;">✉️ {semail}</span>'
-                        f'</div>', unsafe_allow_html=True)
-                with col_role:
-                    if ticked:
-                        new_role = st.selectbox("", ROLES,
-                                                index=ROLES.index(cur_role) if cur_role in ROLES else 0,
-                                                key=f"mem_role_{committee}_{sid}",
-                                                label_visibility="collapsed")
+        def save_transition(d):
+            supabase.table("student_transitions").insert(d).execute()
+
+        def upd_transition(tid, d):
+            supabase.table("student_transitions").update(d).eq("id", tid).execute()
+
+        def del_transition(tid):
+            supabase.table("student_transitions").delete().eq("id", tid).execute()
+
+        def fmt_time_short(t):
+            if not t: return ""
+            try: return datetime.strptime(str(t)[:5], "%H:%M").strftime("%-I:%M%p").lower()
+            except: return str(t)[:5]
+
+        # ── Filters ──
+        tr1, tr2, tr3 = st.columns(3)
+        with tr1:
+            tr_prog = st.multiselect("Program", ["JP","PY","SY"], default=["JP","PY","SY"], key="tr_prog")
+        with tr2:
+            # Get distinct students from transitions for filter
+            all_trans = db_transitions()
+            all_inits = sorted(set(t.get("student_initials","") for t in all_trans if t.get("student_initials")))
+            tr_student = st.selectbox("Filter by student", ["All"] + all_inits, key="tr_student")
+        with tr3:
+            tr_term = st.selectbox("Filter by term", ["All", "Term 1", "Term 2", "Term 3", "Term 4"], key="tr_term")
+
+        # ── Add new transition week ──
+        with st.expander("➕ Add Transition Week"):
+            with st.form("tr_add_form", clear_on_submit=True):
+                tf1, tf2 = st.columns(2)
+                with tf1:
+                    tr_initials  = st.text_input("Student initials *", placeholder="e.g. J.S.")
+                    tr_program_s = st.selectbox("Program *", ["", "JP", "PY", "SY"], key="tr_prog_add")
+                    tr_school    = st.text_input("Mainstream school name", placeholder="e.g. Cowandilla Primary")
+                    tr_added_by  = st.text_input("Added by *", placeholder="Your name")
+                with tf2:
+                    tr_term_val  = st.selectbox("Term *", ["Term 1", "Term 2", "Term 3", "Term 4"], key="tr_term_add")
+                    tr_week_lbl  = st.text_input("Week label *", placeholder="e.g. Week 3")
+                    tr_week_date = st.date_input("Week start date (Monday) *", value=today - timedelta(days=today.weekday()), key="tr_week_date")
+                    tr_notes     = st.text_area("Notes (optional)", height=60)
+
+                st.markdown("**Times at mainstream school** *(leave blank = at CLC all day)*")
+                day_cols = st.columns(5)
+                tr_times = {}
+                for i, (day, dk) in enumerate(zip(DAYS, DAY_KEYS)):
+                    with day_cols[i]:
+                        st.markdown(f"**{day[:3]}**")
+                        tr_times[f"{dk}_start"] = st.time_input(f"From", value=None, key=f"tr_{dk}_s")
+                        tr_times[f"{dk}_end"]   = st.time_input(f"To",   value=None, key=f"tr_{dk}_e")
+
+                tr_ok = st.form_submit_button("✅ Save Transition Week", type="primary", use_container_width=True)
+                if tr_ok:
+                    if not tr_initials.strip():
+                        st.warning("Please enter student initials.")
+                    elif not tr_program_s:
+                        st.warning("Please select a program.")
+                    elif not tr_added_by.strip():
+                        st.warning("Please enter your name.")
+                    elif not tr_week_lbl.strip():
+                        st.warning("Please enter a week label.")
                     else:
-                        new_role = "Member"
-                        st.empty()
-                with col_save:
-                    st.write("")
-                    if ticked and not is_member:
-                        if st.button("➕", key=f"mem_add_{committee}_{sid}", help=f"Add {sname}"):
-                            db_set_committee_membership(committee, sid, new_role)
-                            st.rerun()
-                    elif ticked and is_member and new_role != cur_role:
-                        if st.button("💾", key=f"mem_save_{committee}_{sid}", help="Save role"):
-                            db_set_committee_membership(committee, sid, new_role)
-                            st.rerun()
-                    elif not ticked and is_member:
-                        if st.button("✖", key=f"mem_rem_{committee}_{sid}", help=f"Remove {sname}"):
-                            db_remove_committee_membership(committee, sid)
-                            st.rerun()
-
-            # Summary
-            if members:
-                st.markdown("---")
-                names = ", ".join(m["name"] for m in members)
-                st.markdown(f"**{len(members)} member{'s' if len(members)!=1 else ''} on this committee:** {names}")
-
-        # Email config status
-        st.markdown("---")
-        smtp_conf = st.secrets.get("smtp", {})
-        smtp_user = smtp_conf.get("user","")
-        smtp_host = smtp_conf.get("host","smtp.gmail.com")
-        if smtp_user:
-            st.markdown(f"""
-            <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
-                        padding:0.6rem 0.9rem;font-size:0.83rem;color:#15803d;">
-              ✅ <strong>Email configured</strong> — sending via {smtp_user} ({smtp_host})
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;
-                        padding:0.6rem 0.9rem;font-size:0.83rem;color:#92400e;">
-              ⚠️ <strong>Email not configured.</strong> Add this to your Streamlit secrets:<br><br>
-              <code>[smtp]</code><br>
-              <code>host = "smtp.gmail.com"</code><br>
-              <code>port = 587</code><br>
-              <code>user = "clc.digitalstaffmeeting@gmail.com"</code><br>
-              <code>password = "your-16-char-app-password"</code><br>
-              <code>from_name = "CLC Committees"</code>
-            </div>
-            """, unsafe_allow_html=True)
-
-# ─── MAIN COMMITTEE VIEW ──────────────────────────────────────────────────────
-def render_committee(committee):
-    cfg = COMMITTEES[committee]
-
-    # Header
-    st.markdown(f"""
-    <div class="comm-header" style="background:linear-gradient(135deg,{cfg['color']},{cfg['color']}cc);">
-      <div style="font-size:3rem;">{cfg['emoji']}</div>
-      <div>
-        <h1>{committee} Committee</h1>
-        <p>Cowandilla Learning Centre · {cfg['desc']}</p>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Top bar
-    col1, col2, col3 = st.columns([5, 2, 1])
-    with col2:
-        if not st.session_state.is_admin:
-            with st.expander("🔐 Admin"):
-                adpw = st.text_input("Admin password", type="password", key="adpw")
-                if st.button("Sign In", type="primary", use_container_width=True, key="admin_sign_in"):
-                    if adpw == st.secrets.get(ADMIN_PASSWORD_KEY, ADMIN_DEFAULT_PW):
-                        st.session_state.is_admin = True
+                        row = {
+                            "student_initials": tr_initials.strip(),
+                            "program": tr_program_s,
+                            "mainstream_school": tr_school.strip(),
+                            "term": tr_term_val,
+                            "week_label": tr_week_lbl.strip(),
+                            "week_start_date": str(tr_week_date),
+                            "notes": tr_notes.strip(),
+                            "added_by": tr_added_by.strip(),
+                        }
+                        for dk in DAY_KEYS:
+                            s = tr_times.get(f"{dk}_start")
+                            e = tr_times.get(f"{dk}_end")
+                            row[f"{dk}_start"] = str(s) if s else None
+                            row[f"{dk}_end"]   = str(e) if e else None
+                        save_transition(row)
+                        st.success(f"✅ Transition week saved for {tr_initials.strip()}!")
                         st.rerun()
-                    else:
-                        st.error("Incorrect admin password.")
+
+        st.markdown("---")
+
+        # ── Fetch and filter ──
+        disp_trans = db_transitions(initials=None if tr_student == "All" else tr_student)
+        if tr_prog != ["JP","PY","SY"]:
+            disp_trans = [t for t in disp_trans if t.get("program","") in tr_prog]
+        if tr_term != "All":
+            disp_trans = [t for t in disp_trans if t.get("term","") == tr_term]
+
+        if not disp_trans:
+            st.markdown('<div class="info-box">No transition schedules found. Add one above.</div>', unsafe_allow_html=True)
         else:
-            st.success("🔓 Admin")
-            if st.button("Sign Out", use_container_width=True):
-                st.session_state.is_admin = False
-                st.rerun()
-    with col3:
-        if st.button("← Back", use_container_width=True):
-            st.session_state.selected_committee = None
-            st.session_state.ai_result = None
-            st.session_state.n_agenda_items = 3
-            st.rerun()
+            # Group by student
+            from collections import defaultdict
+            by_student = defaultdict(list)
+            for t in disp_trans:
+                by_student[t.get("student_initials","?")].append(t)
 
-    # Tabs
-    tab_agenda, tab_minutes, tab_schedule = st.tabs([
-        "📋 Agenda",
-        "📝 Minutes",
-        "📅 Schedule",
-    ])
+            for init, weeks in by_student.items():
+                prog = weeks[0].get("program","")
+                pc   = PROGRAM_COLORS.get(prog, {"color":"#374151","bg":"#f3f4f6"})
+                school = weeks[0].get("mainstream_school","")
 
-    with tab_agenda:
-        render_agenda_tab(committee)
+                # Student header
+                st.markdown(
+                    f'<div style="background:{pc["bg"]};border-left:4px solid {pc["color"]};border-radius:10px;'
+                    f'padding:0.6rem 1rem;margin:1rem 0 0.5rem;display:flex;align-items:center;gap:0.75rem;">'
+                    f'<span style="background:{pc["color"]};color:white;font-size:0.75rem;font-weight:700;'
+                    f'padding:0.2rem 0.55rem;border-radius:8px;">{prog}</span>'
+                    f'<strong style="font-size:1rem;color:{pc["color"]};">🔀 {init}</strong>'
+                    f'{"<span style=\"font-size:0.82rem;color:#666;\">→ "+school+"</span>" if school else ""}'
+                    f'</div>', unsafe_allow_html=True)
 
-    with tab_minutes:
-        render_minutes_tab(committee)
+                # Build timetable HTML grid
+                html = """
+<style>
+.tr-grid{border-collapse:collapse;width:100%;font-family:'Inter',sans-serif;margin-bottom:1rem;}
+.tr-grid th{background:#4a7c59;color:white;padding:6px 10px;font-size:0.78rem;font-weight:600;text-align:center;border:1px solid #3a6347;}
+.tr-grid th.row-h{background:#2d5a3d;text-align:left;min-width:90px;}
+.tr-grid td{border:1px solid #d1d5db;padding:6px 8px;font-size:0.78rem;text-align:center;background:white;vertical-align:middle;}
+.tr-grid td.label-cell{background:#f0f7f2;font-weight:600;color:#2d5a3d;text-align:left;white-space:nowrap;}
+.tr-grid td.has-time{background:#d1fae5;color:#065f46;font-weight:600;}
+.tr-grid td.no-time{background:#f9fafb;color:#9ca3af;font-size:0.72rem;}
+.tr-grid tr.week-divider td{border-top:2px solid #6b9e7a;}
+</style>
+<table class="tr-grid">
+<tr>
+  <th class="row-h">Term / Week</th>
+  <th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th><th>Friday</th>
+</tr>"""
+                cur_term = None
+                for idx_w, week in enumerate(weeks):
+                    trm  = week.get("term","")
+                    wlbl = week.get("week_label","")
+                    tid  = week.get("id","")
+                    # Week date labels row
+                    wdate = week.get("week_start_date","")
+                    try:
+                        wmon = datetime.strptime(wdate[:10], "%Y-%m-%d").date()
+                        date_cells = "".join([
+                            f'<td style="font-size:0.7rem;color:#888;background:#fafafa;">{(wmon+timedelta(days=i)).strftime("%-d %b")}</td>'
+                            for i in range(5)])
+                    except:
+                        date_cells = "<td colspan='5'></td>"
 
-    with tab_schedule:
-        render_schedule_tab(committee)
+                    # Term header row
+                    if trm != cur_term:
+                        cur_term = trm
+                        html += f'<tr><td class="label-cell" colspan="6" style="background:#2d5a3d;color:white;font-size:0.8rem;letter-spacing:0.05em;text-transform:uppercase;">{trm}</td></tr>'
 
-# ─── MAIN ROUTER ──────────────────────────────────────────────────────────────
-# Read ?committee= query param from portal link — skip landing page if set
-try:
-    _qp = st.query_params.get("committee", None)
-except:
-    try:
-        _qp = st.experimental_get_query_params().get("committee", [None])[0]
-    except:
-        _qp = None
-if _qp and _qp in COMMITTEES and st.session_state.selected_committee is None:
-    st.session_state.selected_committee = _qp
-    st.query_params.clear()
+                    # Week label + dates
+                    html += f'<tr class="{"week-divider" if idx_w>0 else ""}"><td class="label-cell" rowspan="2">{wlbl}</td>{date_cells}</tr>'
 
-committee = st.session_state.selected_committee
+                    # Time cells row
+                    html += "<tr>"
+                    for dk in DAY_KEYS:
+                        s = fmt_time_short(week.get(f"{dk}_start"))
+                        e = fmt_time_short(week.get(f"{dk}_end"))
+                        if s and e:
+                            html += f'<td class="has-time">{s}–{e}</td>'
+                        elif s:
+                            html += f'<td class="has-time">{s}</td>'
+                        else:
+                            html += '<td class="no-time">CLC</td>'
+                    html += "</tr>"
 
-if committee is None:
-    landing_page()
-elif not is_authed(committee):
-    auth_gate(committee)
-else:
-    render_committee(committee)
+                html += "</table>"
+                st.markdown(html, unsafe_allow_html=True)
 
-# ─── FOOTER ──────────────────────────────────────────────────────────────────
+                # Notes
+                if weeks[0].get("notes"):
+                    st.caption(f"📝 {weeks[0]['notes']}")
+
+                # Edit / delete controls per week
+                with st.expander(f"✏️ Edit / delete weeks for {init}"):
+                    for week in weeks:
+                        tid   = week.get("id","")
+                        wlbl  = week.get("week_label","")
+                        wdate = week.get("week_start_date","")
+                        ec1, ec2, ec3 = st.columns([4,1,1])
+                        with ec1:
+                            st.markdown(f"**{week.get('term','')} · {wlbl}** — {wdate}")
+                        with ec2:
+                            if st.button("✏️", key=f"tr_ed_{tid}"):
+                                st.session_state.edit_event_id = tid if st.session_state.edit_event_id != tid else None
+                                st.rerun()
+                        with ec3:
+                            if st.session_state.is_admin:
+                                if st.button("🗑️", key=f"tr_del_{tid}"):
+                                    del_transition(tid); st.rerun()
+
+                        if st.session_state.edit_event_id == tid:
+                            with st.form(f"tr_ef_{tid}", clear_on_submit=False):
+                                ef1, ef2 = st.columns(2)
+                                with ef1:
+                                    e_init_tr   = st.text_input("Student initials *", value=week.get("student_initials",""))
+                                    prog_opts   = ["", "JP", "PY", "SY"]
+                                    e_prog_tr   = st.selectbox("Program *", prog_opts,
+                                                               index=prog_opts.index(week.get("program","")) if week.get("program","") in prog_opts else 0)
+                                    e_school_tr = st.text_input("Mainstream school", value=week.get("mainstream_school",""))
+                                    e_by_tr     = st.text_input("Added by *", value=week.get("added_by",""))
+                                with ef2:
+                                    e_term_tr   = st.selectbox("Term *", ["Term 1","Term 2","Term 3","Term 4"],
+                                                               index=["Term 1","Term 2","Term 3","Term 4"].index(week.get("term","Term 1")) if week.get("term") in ["Term 1","Term 2","Term 3","Term 4"] else 0)
+                                    e_wlbl_tr   = st.text_input("Week label *", value=week.get("week_label",""))
+                                    try:
+                                        e_wdate_tr = st.date_input("Week start date *",
+                                                                   value=datetime.strptime(week.get("week_start_date","")[:10],"%Y-%m-%d").date(),
+                                                                   key=f"tr_wd_{tid}")
+                                    except:
+                                        e_wdate_tr = st.date_input("Week start date *", value=today, key=f"tr_wd_{tid}")
+                                    e_notes_tr  = st.text_area("Notes", value=week.get("notes",""), height=50)
+
+                                st.markdown("**Times at mainstream**")
+                                eday_cols = st.columns(5)
+                                e_tr_times = {}
+                                for i, (day, dk) in enumerate(zip(DAYS, DAY_KEYS)):
+                                    with eday_cols[i]:
+                                        st.markdown(f"**{day[:3]}**")
+                                        existing_s = week.get(f"{dk}_start")
+                                        existing_e = week.get(f"{dk}_end")
+                                        e_tr_times[f"{dk}_start"] = st.time_input(f"From", value=None, key=f"tr_e{dk}s_{tid}")
+                                        e_tr_times[f"{dk}_end"]   = st.time_input(f"To",   value=None, key=f"tr_e{dk}e_{tid}")
+
+                                if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                                    upd_row = {
+                                        "student_initials": e_init_tr.strip(),
+                                        "program": e_prog_tr,
+                                        "mainstream_school": e_school_tr.strip(),
+                                        "term": e_term_tr,
+                                        "week_label": e_wlbl_tr.strip(),
+                                        "week_start_date": str(e_wdate_tr),
+                                        "notes": e_notes_tr.strip(),
+                                        "added_by": e_by_tr.strip(),
+                                    }
+                                    for dk in DAY_KEYS:
+                                        s = e_tr_times.get(f"{dk}_start")
+                                        e_val = e_tr_times.get(f"{dk}_end")
+                                        upd_row[f"{dk}_start"] = str(s) if s else None
+                                        upd_row[f"{dk}_end"]   = str(e_val) if e_val else None
+                                    upd_transition(tid, upd_row)
+                                    st.session_state.edit_event_id = None
+                                    st.success("Updated!"); st.rerun()
+
+# ─── FOOTER ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style="text-align:center;padding:2rem 0 0.5rem;color:#aaa;font-size:0.76rem;">
-Cowandilla Learning Centre · Committee Management System
-</div>
-""", unsafe_allow_html=True)
+Cowandilla Learning Centre · Communal Staff Calendar · Events auto-sync to Daily Bulletin
+</div>""", unsafe_allow_html=True)
