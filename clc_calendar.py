@@ -82,6 +82,12 @@ hr { border: none; border-top: 1px solid #eaecf0; margin: 0.75rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
+# ─── ADMIN PASSWORD ──────────────────────────────────────────────────────────────
+try:
+    CAL_ADMIN_PW = st.secrets["CAL_ADMIN_PASSWORD"]
+except Exception:
+    CAL_ADMIN_PW = "CLC2026"
+
 # ─── SESSION STATE ───────────────────────────────────────────────────────────────
 today = date.today()
 for k, v in [("cal_year", today.year), ("cal_month", today.month),
@@ -161,7 +167,12 @@ def upd_event(ev_id, d):
     }).eq("id", ev_id).execute()
 
 def del_event(ev_id):
-    supabase.table("clc_events").delete().eq("id", ev_id).execute()
+    try:
+        result = supabase.table("clc_events").delete().eq("id", str(ev_id)).execute()
+        return True
+    except Exception as e:
+        st.error(f"Could not delete event: {e}")
+        return False
 
 # ─── EVENT FORM ──────────────────────────────────────────────────────────────────
 def event_form(key, default_date=None, existing=None, label="📅 Save Event"):
@@ -362,7 +373,7 @@ with hc2:
         with st.expander("🔐 Admin"):
             pw = st.text_input("", type="password", key="admin_pw", placeholder="Admin password")
             if st.button("Sign In", type="primary", use_container_width=True):
-                if pw == st.secrets.get("CAL_ADMIN_PASSWORD","CLC2026"):
+                if pw == CAL_ADMIN_PW:
                     st.session_state.is_admin = True; st.rerun()
                 else: st.error("Incorrect password")
     else:
@@ -549,8 +560,16 @@ with tab_month:
         with ev_cols[3]:
             if st.session_state.is_admin and not pac:
                 st.write("")
-                if st.button("🗑️", key=f"mdel_{eid}", help="Delete"):
-                    del_event(eid); st.rerun()
+                confirm_key = f"confirm_del_{eid}"
+                if st.session_state.get(confirm_key):
+                    if st.button("✅ Yes", key=f"mdel_yes_{eid}", help="Confirm delete", type="primary"):
+                        del_event(eid)
+                        st.session_state[confirm_key] = False
+                        st.rerun()
+                else:
+                    if st.button("🗑️", key=f"mdel_{eid}", help="Delete event"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
 
         # ── Inline detail panel — expands directly under the event ──
         if is_expanded:
@@ -669,28 +688,33 @@ with tab_week:
                 st.markdown("<div style='color:#ddd;font-size:0.72rem;text-align:center;padding:0.3rem 0;'>—</div>",
                             unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-            # Styled day selector tab
+            # Coloured button directly — label carries the colour info via CSS keyed on index
             n_evs = len(widx.get(ds,[]))
             if isel:
-                tab_bg = "#1a2e44"; tab_col = "white"; tab_icon = "✅"
-                tab_txt = "Selected"
+                tab_bg = "#1a2e44"; tab_col = "white"
+                tab_lbl = "✅ Selected"
             elif itod:
-                tab_bg = "#d4af37"; tab_col = "white"; tab_icon = "📍"
-                tab_txt = f"{n_evs} event{'s' if n_evs!=1 else ''}" if n_evs else "Today"
+                tab_bg = "#d4af37"; tab_col = "white"
+                tab_lbl = (f"📍 {n_evs} event{'s' if n_evs!=1 else ''}") if n_evs else "📍 Today"
             elif n_evs:
-                tab_bg = "#e8edf3"; tab_col = "#1a2e44"; tab_icon = "👁"
-                tab_txt = f"{n_evs} event{'s' if n_evs!=1 else ''}"
+                tab_bg = "#2d4a6e"; tab_col = "white"
+                tab_lbl = f"👁 {n_evs} event{'s' if n_evs!=1 else ''}"
             else:
-                tab_bg = "#f3f4f6"; tab_col = "#6b7280"; tab_icon = "➕"
-                tab_txt = "Add"
+                tab_bg = "#6b7280"; tab_col = "white"
+                tab_lbl = "➕ Add"
+            # Inject CSS targeting this specific column button
             st.markdown(
-                f"<div style='background:{tab_bg};border-radius:0 0 8px 8px;margin-top:2px;"
-                f"padding:0.3rem;text-align:center;cursor:pointer;'>"
-                f"<span style='color:{tab_col};font-size:0.7rem;font-weight:600;'>"
-                f"{tab_icon} {tab_txt}</span></div>",
+                f"<style>div[data-testid='column']:nth-child({i+1}) "
+                f"button[data-testid='baseButton-secondary'] {{"
+                f" background-color:{tab_bg} !important;"
+                f" color:{tab_col} !important;"
+                f" border:none !important;"
+                f" font-size:0.68rem !important;"
+                f" font-weight:700 !important;"
+                f" padding:0.3rem 0.1rem !important;"
+                f" border-radius:6px !important; }}</style>",
                 unsafe_allow_html=True)
-            if st.button(" ", key=f"wsel_{i}", use_container_width=True,
-                         help=f"Select {d.strftime('%-d %B')}"):
+            if st.button(tab_lbl, key=f"wsel_{i}", use_container_width=True):
                 select_day(d)
                 st.session_state.selected_event_id = None
                 st.rerun()
@@ -747,8 +771,16 @@ with tab_week:
         with ev_cols[3]:
             if st.session_state.is_admin and not pac:
                 st.write("")
-                if st.button("🗑️", key=f"wdel_{eid}", help="Delete"):
-                    del_event(eid); st.rerun()
+                confirm_key = f"confirm_del_{eid}"
+                if st.session_state.get(confirm_key):
+                    if st.button("✅ Yes", key=f"wdel_yes_{eid}", help="Confirm delete", type="primary"):
+                        del_event(eid)
+                        st.session_state[confirm_key] = False
+                        st.rerun()
+                else:
+                    if st.button("🗑️", key=f"wdel_{eid}", help="Delete event"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
 
         if is_expanded:
             edate = fmt_date(ev.get("event_date",""))
