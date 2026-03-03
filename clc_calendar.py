@@ -420,78 +420,81 @@ with tab_month:
     ts   = str(today)
     ss   = str(st.session_state.selected_date)
 
-    # ── Interactive month grid (button-based so dates are clickable) ──
-    # Header row
+    # ── Month grid ──
+    # CSS to hide the button text (we only need the click area, visuals are in the HTML div above)
+    st.markdown("""
+    <style>
+    [data-testid="stButton"] button[kind="secondary"] { opacity:0; height:8px; min-height:0;
+        padding:0; margin:-4px 0 2px; border:none; background:transparent; }
+    </style>""", unsafe_allow_html=True)
+
     day_headers = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
     hcols = st.columns(7)
     for i, dn in enumerate(day_headers):
         with hcols[i]:
             st.markdown(f"<div style='text-align:center;font-weight:700;font-size:0.78rem;"
                         f"color:#1a2e4a;padding:0.3rem 0;border-bottom:2px solid #e5e7eb;"
-                        f"margin-bottom:0.3rem;'>{dn}</div>", unsafe_allow_html=True)
+                        f"margin-bottom:0.4rem;'>{dn}</div>", unsafe_allow_html=True)
 
     for week in calendar.monthcalendar(yr, mo):
         wcols = st.columns(7)
         for i, day in enumerate(week):
             with wcols[i]:
                 if day == 0:
-                    st.markdown("<div style='min-height:70px;'>&nbsp;</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='min-height:80px;'></div>", unsafe_allow_html=True)
                     continue
                 d = date(yr, mo, day); ds = str(d)
                 is_today = ds == ts; is_sel = ds == ss
                 day_evs  = idx.get(ds, [])
 
-                # Day cell styling
                 border = "3px solid #d4af37" if is_today else ("3px solid #1a2e4a" if is_sel else "1px solid #e5e7eb")
-                bg      = "#fffef5" if is_today else ("#e8edf3" if is_sel else "white")
-                num_col = "#d4af37" if is_today else ("#1a2e4a" if is_sel else "#374151")
-                badge   = f"<span style='background:#d4af37;color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:800;'>{day}</span>" if is_today else f"<span style='color:{num_col};font-weight:700;font-size:0.82rem;'>{day}</span>"
+                bg     = "#fffef5" if is_today else ("#e8edf3" if is_sel else "white")
+                num_col= "#d4af37" if is_today else ("#1a2e4a" if is_sel else "#374151")
+                badge  = (f"<span style='background:#d4af37;color:white;border-radius:50%;"
+                          f"width:22px;height:22px;display:inline-flex;align-items:center;"
+                          f"justify-content:center;font-size:0.72rem;font-weight:800;'>{day}</span>"
+                          if is_today else
+                          f"<span style='color:{num_col};font-weight:700;font-size:0.82rem;'>{day}</span>")
 
-                # Event chips inside cell
                 chips_html = ""
                 for ev in day_evs[:2]:
-                    etype = ev.get("event_type","Other")
-                    prog  = ev.get("program","")
+                    etype = ev.get("event_type","Other"); prog = ev.get("program","")
                     if prog and etype in STUDENT_EVENT_TYPES:
-                        pc = PROGRAM_COLORS.get(prog,{}); cbg=pc.get("bg","#f3f4f6"); ccol=pc.get("color","#374151")
-                        emoji = EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
+                        pc=PROGRAM_COLORS.get(prog,{}); cbg=pc.get("bg","#f3f4f6"); ccol=pc.get("color","#374151")
+                        emoji=EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
                     else:
                         cfg=EVENT_TYPES.get(etype,EVENT_TYPES["Other"]); cbg=cfg["bg"]; ccol=cfg["color"]; emoji=cfg["emoji"]
                     lbl = ev.get("student_initials","") or ev.get("title","")
                     lbl = lbl[:10]+"…" if len(lbl)>10 else lbl
-                    chips_html += f"<div style='background:{cbg};color:{ccol};border-radius:4px;padding:0.1rem 0.3rem;font-size:0.62rem;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{emoji} {lbl}</div>"
-                extra = len(day_evs) - 2
-                if extra > 0:
-                    chips_html += f"<div style='font-size:0.6rem;color:#888;'>+{extra} more</div>"
+                    chips_html += (f"<div style='background:{cbg};color:{ccol};border-radius:4px;"
+                                   f"padding:0.1rem 0.3rem;font-size:0.62rem;font-weight:600;"
+                                   f"margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;"
+                                   f"white-space:nowrap;'>{emoji} {lbl}</div>")
+                if len(day_evs) > 2:
+                    chips_html += f"<div style='font-size:0.6rem;color:#888;'>+{len(day_evs)-2} more</div>"
 
                 st.markdown(
                     f"<div style='border:{border};border-radius:8px;background:{bg};"
-                    f"padding:0.35rem;min-height:72px;cursor:pointer;'>"
-                    f"<div style='margin-bottom:3px;'>{badge}</div>{chips_html}</div>",
-                    unsafe_allow_html=True
-                )
-                # Invisible button covering the cell for click detection
-                btn_label = "+" if not day_evs else f"{'●' * min(len(day_evs),3)}"
-                if st.button(f"{day}", key=f"mday_{yr}_{mo}_{day}", use_container_width=True,
-                             help=f"Click to {'view events on' if day_evs else 'add event on'} {d.strftime('%-d %B')}"):
+                    f"padding:0.4rem;min-height:80px;'>"
+                    f"<div style='margin-bottom:4px;'>{badge}</div>{chips_html}</div>",
+                    unsafe_allow_html=True)
+                # Hidden click button
+                if st.button(" ", key=f"mday_{yr}_{mo}_{day}", use_container_width=True):
                     select_day(d)
                     st.session_state.cal_year  = yr
                     st.session_state.cal_month = mo
-                    st.session_state.quick_add_open = not day_evs  # auto-open add form if no events
+                    st.session_state.quick_add_open = len(day_evs) == 0
                     st.session_state.selected_event_id = None
                     st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Jump to any date
+    # Jump to date
     jumped = st.date_input("Jump to date:", value=st.session_state.selected_date, key="m_jump", label_visibility="collapsed")
     if jumped != st.session_state.selected_date:
         select_day(jumped); st.session_state.cal_year=jumped.year; st.session_state.cal_month=jumped.month; st.rerun()
 
     st.markdown("---")
-
-    # ── Event detail panel (shows when event chip clicked) ──
-    event_detail_panel()
 
     # ── Day panel ──
     sel = st.session_state.selected_date
@@ -501,20 +504,26 @@ with tab_month:
 
     if not d_evs:
         st.markdown('<div class="add-prompt">📭 No events on this day — click ➕ below to add one</div>', unsafe_allow_html=True)
+
     for ev in d_evs:
-        # Make event title clickable to open detail panel
+        eid    = ev.get("id","")
+        pac    = str(eid).startswith("pac_")
         cfg_ev = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
         prog   = ev.get("program","")
-        if prog and ev.get("event_type") in STUDENT_EVENT_TYPES:
-            pc = PROGRAM_COLORS.get(prog,{}); ecol = pc.get("color", cfg_ev["color"])
-        else:
-            ecol = cfg_ev["color"]
-        tr_ev = fmt_time(ev.get("start_time",""))
+        ecol   = (PROGRAM_COLORS.get(prog,{}).get("color", cfg_ev["color"])
+                  if prog and ev.get("event_type") in STUDENT_EVENT_TYPES else cfg_ev["color"])
+        ebg    = (PROGRAM_COLORS.get(prog,{}).get("bg", cfg_ev["bg"])
+                  if prog and ev.get("event_type") in STUDENT_EVENT_TYPES else cfg_ev["bg"])
+        tr_ev  = fmt_time(ev.get("start_time",""))
         if ev.get("end_time"): tr_ev += f" – {fmt_time(ev['end_time'])}"
+        can_edit = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not pac
+        is_expanded = st.session_state.selected_event_id == eid
+
+        # Event row
         ev_cols = st.columns([7, 1, 1, 1])
         with ev_cols[0]:
             st.markdown(
-                f'<div class="ev-card" style="background:{EVENT_TYPES.get(ev.get("event_type","Other"),EVENT_TYPES["Other"])["bg"]};border-left-color:{ecol};">'
+                f'<div class="ev-card" style="background:{ebg};border-left-color:{ecol};">'
                 f'<h4 style="color:{ecol};margin:0 0 0.2rem;">{cfg_ev["emoji"]} {ev.get("title","")}'
                 f'{(" · "+ev.get("student_initials","")) if ev.get("student_initials") else ""}</h4>'
                 f'<div class="meta">'
@@ -524,30 +533,58 @@ with tab_month:
                 f'</div></div>', unsafe_allow_html=True)
         with ev_cols[1]:
             st.write("")
-            if st.button("🔍", key=f"mdet_{ev.get('id')}", help="View details"):
-                st.session_state.selected_event_id = ev.get("id") if st.session_state.selected_event_id != ev.get("id") else None
+            lbl = "✖" if is_expanded else "🔍"
+            if st.button(lbl, key=f"mdet_{eid}", help="View details" if not is_expanded else "Close"):
+                st.session_state.selected_event_id = None if is_expanded else eid
                 st.rerun()
         with ev_cols[2]:
-            can_edit = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not str(ev.get("id","")).startswith("pac_")
             if can_edit:
                 st.write("")
-                if st.button("✏️", key=f"med_{ev.get('id')}", help="Edit"):
-                    st.session_state.edit_event_id = ev.get("id") if st.session_state.edit_event_id != ev.get("id") else None
+                if st.button("✏️", key=f"med_{eid}", help="Edit"):
+                    st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
                     st.rerun()
         with ev_cols[3]:
-            if st.session_state.is_admin and not str(ev.get("id","")).startswith("pac_"):
+            if st.session_state.is_admin and not pac:
                 st.write("")
-                if st.button("🗑️", key=f"mdel_{ev.get('id')}", help="Delete"):
-                    del_event(ev.get("id")); st.rerun()
+                if st.button("🗑️", key=f"mdel_{eid}", help="Delete"):
+                    del_event(eid); st.rerun()
 
-        if st.session_state.edit_event_id == ev.get("id") and not str(ev.get("id","")).startswith("pac_"):
+        # ── Inline detail panel — expands directly under the event ──
+        if is_expanded:
+            edate = fmt_date(ev.get("event_date",""))
+            if ev.get("end_date") and ev["end_date"] != ev.get("event_date"):
+                edate += f" → {fmt_date(ev['end_date'])}"
+            prog_badge = ""
+            if prog:
+                pc = PROGRAM_COLORS.get(prog,{})
+                prog_badge = (f'<span style="background:{pc.get("bg","#f3f4f6")};color:{pc.get("color","#374151")};'
+                              f'font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:20px;margin-left:6px;">{prog}</span>')
+            st.markdown(
+                f'<div style="background:{ebg};border:2px solid {ecol};border-radius:12px;'
+                f'padding:1rem 1.25rem;margin:0.25rem 0 0.75rem;'
+                f'box-shadow:0 3px 12px rgba(0,0,0,0.1);">'
+                f'<div style="font-weight:800;color:{ecol};font-size:1rem;margin-bottom:0.6rem;">'
+                f'{cfg_ev["emoji"]} {ev.get("title","")}'
+                f'<span style="background:{ecol};color:white;font-size:0.68rem;font-weight:700;'
+                f'padding:0.15rem 0.5rem;border-radius:20px;margin-left:8px;">{ev.get("event_type","")}</span>'
+                f'{prog_badge}</div>'
+                f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.84rem;color:#374151;">'
+                f'<div>📅 <b>Date:</b> {edate}</div>'
+                f'{f"<div>⏰ <b>Time:</b> {tr_ev}</div>" if tr_ev else "<div></div>"}'
+                f'{f"<div>📍 <b>Location:</b> {ev.get(chr(108)+chr(111)+chr(99)+chr(97)+chr(116)+chr(105)+chr(111)+chr(110))}</div>" if ev.get("location") else "<div></div>"}'
+                f'{f"<div>👤 <b>Added by:</b> {ev.get(chr(97)+chr(100)+chr(100)+chr(101)+chr(100)+chr(95)+chr(98)+chr(121))}</div>" if ev.get("added_by") else "<div></div>"}'
+                f'</div>'
+                f'{f'<div style="margin-top:0.5rem;font-size:0.84rem;color:#555;border-top:1px solid rgba(0,0,0,0.08);padding-top:0.4rem;">{ev.get("notes")}</div>' if ev.get("notes") else ""}'
+                f'</div>', unsafe_allow_html=True)
+
+        # Edit form inline
+        if st.session_state.edit_event_id == eid and can_edit:
             st.markdown("**✏️ Edit event:**")
-            ok, data = event_form(f"mef_{ev.get('id')}", existing=ev, label="💾 Save Changes")
+            ok, data = event_form(f"mef_{eid}", existing=ev, label="💾 Save Changes")
             if ok:
-                upd_event(ev.get("id"), data); st.session_state.edit_event_id=None
+                upd_event(eid, data); st.session_state.edit_event_id=None
                 st.success("Updated!"); st.rerun()
 
-    st.markdown("")
     add_label = f"➕ Add event on {sel.strftime('%-d %B')}"
     with st.expander(add_label, expanded=st.session_state.quick_add_open):
         st.session_state.quick_add_open = False
@@ -555,7 +592,6 @@ with tab_month:
         if ok:
             save_event(data)
             st.success(f"✅ '{data['title']}' added!")
-            st.session_state.pending_bulletin = data
             st.rerun()
 
 # ═══════════════ WEEK VIEW ═════════════════════════════════════════════════════
