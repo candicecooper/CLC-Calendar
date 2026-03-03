@@ -599,6 +599,14 @@ with tab_month:
 
 # ═══════════════ WEEK VIEW ═════════════════════════════════════════════════════
 with tab_week:
+    # Hide the transparent overlay buttons on day tabs
+    st.markdown("""<style>
+    .week-tab-btn > div[data-testid="stButton"] button {
+        opacity:0 !important; height:10px !important; min-height:0 !important;
+        padding:0 !important; margin:-22px 0 0 !important;
+        border:none !important; background:transparent !important;
+    }
+    </style>""", unsafe_allow_html=True)
     ws = st.session_state.cal_week_start
     we = ws + timedelta(days=6)
     wp, wt, wn, wtod = st.columns([1,3,1,1])
@@ -661,11 +669,28 @@ with tab_week:
                 st.markdown("<div style='color:#ddd;font-size:0.72rem;text-align:center;padding:0.3rem 0;'>—</div>",
                             unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-            # Visible day selector button
+            # Styled day selector tab
             n_evs = len(widx.get(ds,[]))
-            btn_lbl = "✅ Selected" if isel else (f"👁 View {n_evs} event{'s' if n_evs!=1 else ''}" if n_evs else "➕ Add event")
-            btn_type = "primary" if isel else "secondary"
-            if st.button(btn_lbl, key=f"wsel_{i}", use_container_width=True, type=btn_type):
+            if isel:
+                tab_bg = "#1a2e44"; tab_col = "white"; tab_icon = "✅"
+                tab_txt = "Selected"
+            elif itod:
+                tab_bg = "#d4af37"; tab_col = "white"; tab_icon = "📍"
+                tab_txt = f"{n_evs} event{'s' if n_evs!=1 else ''}" if n_evs else "Today"
+            elif n_evs:
+                tab_bg = "#e8edf3"; tab_col = "#1a2e44"; tab_icon = "👁"
+                tab_txt = f"{n_evs} event{'s' if n_evs!=1 else ''}"
+            else:
+                tab_bg = "#f3f4f6"; tab_col = "#6b7280"; tab_icon = "➕"
+                tab_txt = "Add"
+            st.markdown(
+                f"<div style='background:{tab_bg};border-radius:0 0 8px 8px;margin-top:2px;"
+                f"padding:0.3rem;text-align:center;cursor:pointer;'>"
+                f"<span style='color:{tab_col};font-size:0.7rem;font-weight:600;'>"
+                f"{tab_icon} {tab_txt}</span></div>",
+                unsafe_allow_html=True)
+            if st.button(" ", key=f"wsel_{i}", use_container_width=True,
+                         help=f"Select {d.strftime('%-d %B')}"):
                 select_day(d)
                 st.session_state.selected_event_id = None
                 st.rerun()
