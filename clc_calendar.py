@@ -421,11 +421,14 @@ with tab_month:
     ss   = str(st.session_state.selected_date)
 
     # ── Month grid ──
-    # CSS to hide the button text (we only need the click area, visuals are in the HTML div above)
+    # CSS to hide the day-cell click buttons in month grid only
     st.markdown("""
     <style>
-    [data-testid="stButton"] button[kind="secondary"] { opacity:0; height:8px; min-height:0;
-        padding:0; margin:-4px 0 2px; border:none; background:transparent; }
+    div.month-day-btn > div[data-testid="stButton"] button {
+        opacity:0 !important; height:10px !important; min-height:0 !important;
+        padding:0 !important; margin:-6px 0 0 !important;
+        border:none !important; background:transparent !important;
+    }
     </style>""", unsafe_allow_html=True)
 
     day_headers = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
@@ -622,55 +625,140 @@ with tab_week:
         d    = ws + timedelta(days=i); ds = str(d)
         itod = ds==ts; isel = ds==ss
         top  = "#d4af37" if itod else ("#1a2e4a" if isel else "#e0e0e0")
-        bg   = "#fffef5" if itod else "white"
+        bg   = "#fffef5" if itod else ("f0f4ff" if isel else "white")
         with wc:
-            st.markdown(f'<div class="week-col" style="border-top:3px solid {top};background:{bg};"><div class="week-day-label">{dnames[i]}</div><div class="week-day-num" style="color:{"#d4af37" if itod else "#1a2e4a"};">{d.day}</div>', unsafe_allow_html=True)
-            for ev in widx.get(ds,[]):
-                etype = ev.get("event_type","Other")
-                prog  = ev.get("program","")
+            # Day header - clicking selects the day
+            num_col = "#d4af37" if itod else ("#1a2e4a" if isel else "#374151")
+            badge = (f"<span style='background:#d4af37;color:white;border-radius:50%;"
+                     f"width:22px;height:22px;display:inline-flex;align-items:center;"
+                     f"justify-content:center;font-size:0.72rem;font-weight:800;'>{d.day}</span>"
+                     if itod else
+                     f"<span style='font-weight:700;color:{num_col};'>{d.day}</span>")
+            st.markdown(
+                f"<div style='border-top:3px solid {top};background:{bg};border-radius:8px;"
+                f"padding:0.4rem;min-height:90px;'>"
+                f"<div style='font-size:0.7rem;font-weight:700;color:#888;text-transform:uppercase;"
+                f"letter-spacing:0.05em;'>{dnames[i]}</div>"
+                f"<div style='margin:2px 0 6px;'>{badge}</div>",
+                unsafe_allow_html=True)
+            for ev in widx.get(ds, []):
+                etype = ev.get("event_type","Other"); prog = ev.get("program","")
                 if prog and etype in STUDENT_EVENT_TYPES:
-                    pc  = PROGRAM_COLORS.get(prog,{})
-                    cbg = pc.get("bg","#f3f4f6"); ccol = pc.get("color","#374151")
-                    emoji = EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
+                    pc=PROGRAM_COLORS.get(prog,{}); cbg=pc.get("bg","#f3f4f6"); ccol=pc.get("color","#374151")
+                    emoji=EVENT_TYPES.get(etype,EVENT_TYPES["Other"])["emoji"]
                 else:
-                    cfg   = EVENT_TYPES.get(etype, EVENT_TYPES["Other"])
-                    cbg   = cfg["bg"]; ccol = cfg["color"]; emoji = cfg["emoji"]
+                    cfg=EVENT_TYPES.get(etype,EVENT_TYPES["Other"]); cbg=cfg["bg"]; ccol=cfg["color"]; emoji=cfg["emoji"]
                 t     = fmt_time(ev.get("start_time",""))
-                init  = ev.get("student_initials","")
-                title = (init if init else ev.get("title",""))
-                short = title[:11]+"…" if len(title)>11 else title
-                is_selected_ev = st.session_state.selected_event_id == ev.get("id")
-                border_style = f"2px solid {ccol}" if is_selected_ev else f"3px solid {ccol}"
+                title = ev.get("student_initials","") or ev.get("title","")
+                short = title[:9]+"…" if len(title)>9 else title
                 st.markdown(
-                    f'<div style="background:{cbg};border-left:{border_style};border-radius:5px;'
-                    f'padding:0.25rem 0.4rem;margin-bottom:0.2rem;font-size:0.72rem;cursor:pointer;">'
-                    f'<span style="font-weight:600;color:{ccol};">{emoji} {short}</span>'
-                    f'{("<br><span style=\"color:#666;\">"+ t +"</span>") if t else ""}</div>',
-                    unsafe_allow_html=True)
-                if st.button("🔍", key=f"wdet_{ev.get('id')}", help=f"Details: {title}", use_container_width=True):
-                    st.session_state.selected_event_id = ev.get("id") if st.session_state.selected_event_id != ev.get("id") else None
-                    select_day(d)
-                    st.rerun()
+                    f"<div style='background:{cbg};border-left:3px solid {ccol};border-radius:4px;"
+                    f"padding:0.15rem 0.3rem;margin-bottom:3px;font-size:0.68rem;'>"
+                    f"<span style='font-weight:600;color:{ccol};'>{emoji} {short}</span>"
+                    f"{f'<br><span style=chr(34)color:#777;font-size:0.62rem;{chr(34)}>{t}</span>' if t else ''}"
+                    f"</div>", unsafe_allow_html=True)
             if not widx.get(ds,[]):
-                st.markdown("<div style='color:#ccc;font-size:0.75rem;text-align:center;padding:0.5rem 0;'>—</div>", unsafe_allow_html=True)
+                st.markdown("<div style='color:#ddd;font-size:0.72rem;text-align:center;padding:0.3rem 0;'>—</div>",
+                            unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-            btnlbl = "✅ Selected" if isel else "📝 Add/View"
-            if st.button(btnlbl, key=f"wsel_{i}", use_container_width=True, type="primary" if isel else "secondary"):
-                select_day(d); st.rerun()
+            # Visible day selector button
+            n_evs = len(widx.get(ds,[]))
+            btn_lbl = "✅ Selected" if isel else (f"👁 View {n_evs} event{'s' if n_evs!=1 else ''}" if n_evs else "➕ Add event")
+            btn_type = "primary" if isel else "secondary"
+            if st.button(btn_lbl, key=f"wsel_{i}", use_container_width=True, type=btn_type):
+                select_day(d)
+                st.session_state.selected_event_id = None
+                st.rerun()
 
     st.markdown("---")
-    event_detail_panel()
-    sel = st.session_state.selected_date
+
+    # ── Day panel — same inline detail expansion as month view ──
+    sel   = st.session_state.selected_date
     d_evs = db_events(sel, sel) + pac_events(db_pac(), sel, sel)
     d_evs.sort(key=lambda x: str(x.get("start_time","")))
     st.markdown(f"### {'📍 ' if sel==today else ''}📅 {sel.strftime('%A %-d %B %Y')}")
 
     if not d_evs:
-        st.markdown('<div class="add-prompt">📭 No events on this day — use the form below to add one</div>', unsafe_allow_html=True)
-    for ev in d_evs:
-        render_event_card(ev, "w")
+        st.markdown('<div class="add-prompt">📭 No events on this day — click a day above or use ➕ below</div>',
+                    unsafe_allow_html=True)
 
-    with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs)):
+    for ev in d_evs:
+        eid    = ev.get("id","")
+        pac    = str(eid).startswith("pac_")
+        cfg_ev = EVENT_TYPES.get(ev.get("event_type","Other"), EVENT_TYPES["Other"])
+        prog   = ev.get("program","")
+        ecol   = (PROGRAM_COLORS.get(prog,{}).get("color", cfg_ev["color"])
+                  if prog and ev.get("event_type") in STUDENT_EVENT_TYPES else cfg_ev["color"])
+        ebg    = (PROGRAM_COLORS.get(prog,{}).get("bg", cfg_ev["bg"])
+                  if prog and ev.get("event_type") in STUDENT_EVENT_TYPES else cfg_ev["bg"])
+        tr_ev  = fmt_time(ev.get("start_time",""))
+        if ev.get("end_time"): tr_ev += f" – {fmt_time(ev['end_time'])}"
+        can_edit  = (st.session_state.is_admin or ev.get("event_type") in STUDENT_EVENT_TYPES) and not pac
+        is_expanded = st.session_state.selected_event_id == eid
+
+        ev_cols = st.columns([7, 1, 1, 1])
+        with ev_cols[0]:
+            st.markdown(
+                f'<div class="ev-card" style="background:{ebg};border-left-color:{ecol};">'
+                f'<h4 style="color:{ecol};margin:0 0 0.2rem;">{cfg_ev["emoji"]} {ev.get("title","")}'
+                f'{(" · "+ev.get("student_initials","")) if ev.get("student_initials") else ""}</h4>'
+                f'<div class="meta">'
+                f'{(" ⏰ "+tr_ev) if tr_ev else ""}'
+                f'{(" 📍 "+ev.get("location","")) if ev.get("location") else ""}'
+                f'{(" 👤 "+ev.get("added_by","")) if ev.get("added_by") else ""}'
+                f'</div></div>', unsafe_allow_html=True)
+        with ev_cols[1]:
+            st.write("")
+            if st.button("✖" if is_expanded else "🔍", key=f"wdet2_{eid}",
+                         help="Close" if is_expanded else "View details"):
+                st.session_state.selected_event_id = None if is_expanded else eid
+                st.rerun()
+        with ev_cols[2]:
+            if can_edit:
+                st.write("")
+                if st.button("✏️", key=f"wed_{eid}", help="Edit"):
+                    st.session_state.edit_event_id = eid if st.session_state.edit_event_id != eid else None
+                    st.rerun()
+        with ev_cols[3]:
+            if st.session_state.is_admin and not pac:
+                st.write("")
+                if st.button("🗑️", key=f"wdel_{eid}", help="Delete"):
+                    del_event(eid); st.rerun()
+
+        if is_expanded:
+            edate = fmt_date(ev.get("event_date",""))
+            if ev.get("end_date") and ev["end_date"] != ev.get("event_date"):
+                edate += f" → {fmt_date(ev['end_date'])}"
+            prog_badge = ""
+            if prog:
+                pc = PROGRAM_COLORS.get(prog,{})
+                prog_badge = (f'<span style="background:{pc.get("bg","#f3f4f6")};color:{pc.get("color","#374151")};'
+                              f'font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:20px;margin-left:6px;">{prog}</span>')
+            st.markdown(
+                f'<div style="background:{ebg};border:2px solid {ecol};border-radius:12px;'
+                f'padding:1rem 1.25rem;margin:0.25rem 0 0.75rem;box-shadow:0 3px 12px rgba(0,0,0,0.1);">'
+                f'<div style="font-weight:800;color:{ecol};font-size:1rem;margin-bottom:0.6rem;">'
+                f'{cfg_ev["emoji"]} {ev.get("title","")}'
+                f'<span style="background:{ecol};color:white;font-size:0.68rem;font-weight:700;'
+                f'padding:0.15rem 0.5rem;border-radius:20px;margin-left:8px;">{ev.get("event_type","")}</span>'
+                f'{prog_badge}</div>'
+                f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.84rem;color:#374151;">'
+                f'<div>📅 <b>Date:</b> {edate}</div>'
+                f'{f"<div>⏰ <b>Time:</b> {tr_ev}</div>" if tr_ev else "<div></div>"}'
+                f'{f"<div>📍 <b>Location:</b> {ev.get('location','')}</div>" if ev.get("location") else "<div></div>"}'
+                f'{f"<div>👤 <b>Added by:</b> {ev.get('added_by','')}</div>" if ev.get("added_by") else "<div></div>"}'
+                f'</div>'
+                f'{f'<div style="margin-top:0.5rem;font-size:0.84rem;color:#555;border-top:1px solid rgba(0,0,0,0.08);padding-top:0.4rem;">{ev.get("notes")}</div>' if ev.get("notes") else ""}'
+                f'</div>', unsafe_allow_html=True)
+
+        if st.session_state.edit_event_id == eid and can_edit:
+            st.markdown("**✏️ Edit event:**")
+            ok, data = event_form(f"wef_{eid}", existing=ev, label="💾 Save Changes")
+            if ok:
+                upd_event(eid, data); st.session_state.edit_event_id=None
+                st.success("Updated!"); st.rerun()
+
+    with st.expander(f"➕ Add event on {sel.strftime('%-d %B')}", expanded=(not d_evs and sel != today)):
         ok, data = event_form(f"wadd_{str(sel)}", default_date=sel)
         if ok: save_event(data); st.success(f"✅ '{data['title']}' added!"); st.rerun()
 
